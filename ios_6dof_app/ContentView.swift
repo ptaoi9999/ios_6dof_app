@@ -23,9 +23,17 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     // パススルー（背景カメラ映像）が有効か
     @Published var isPassThroughEnabled: Bool = false
     
+    // 現在手をグー（Fist）にしているか
+    @Published var isFist: Bool = false
+    // LaunchPadメニューの表示フラグ
+    @Published var isMenuVisible: Bool = false
+    // メニューを表示固定した際の世界座標Transform
+    @Published var menuTransform: simd_float4x4 = matrix_identity_float4x4
+    
     private var handPoseRequest = VNDetectHumanHandPoseRequest()
     private var frameCounter = 0
     private var wasPinching: Bool = false // 前回のピンチ状態（エッジ検出用）
+    private var wasFist: Bool = false     // 前回のグー状態（エッジ検出用）
     
     override init() {
         super.init()
@@ -64,39 +72,83 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             do {
                 try handler.perform([handPoseRequest])
                 if let observation = handPoseRequest.results?.first {
+                    // 各関節の取得
                     let indexPoints = try observation.recognizedPoints(.indexFinger)
+                    let middlePoints = try observation.recognizedPoints(.middleFinger)
+                    let ringPoints = try observation.recognizedPoints(.ringFinger)
+                    let littlePoints = try observation.recognizedPoints(.littleFinger)
                     let thumbPoints = try observation.recognizedPoints(.thumb)
+                    let wristPoints = try observation.recognizedPoints(.all)
                     
                     if let indexTip = indexPoints[.indexTip], indexTip.confidence > 0.5,
-                       let thumbTip = thumbPoints[.thumbTip], thumbTip.confidence > 0.5 {
+                       let indexMCP = indexPoints[.indexMCP], indexMCP.confidence > 0.5,
+                       let middleTip = middlePoints[.middleTip], middleTip.confidence > 0.5,
+                       let middleMCP = middlePoints[.middleMCP], middleMCP.confidence > 0.5,
+                       let ringTip = ringPoints[.ringTip], ringTip.confidence > 0.5,
+                       let ringMCP = ringPoints[.ringMCP], ringMCP.confidence > 0.5,
+                       let littleTip = littlePoints[.littleTip], littleTip.confidence > 0.5,
+                       let littleMCP = littlePoints[.littleMCP], littleMCP.confidence > 0.5,
+                       let thumbTip = thumbPoints[.thumbTip], thumbTip.confidence > 0.5,
+                       let wrist = wristPoints[.wrist], wrist.confidence > 0.5 {
                         
                         let tipX = Float(indexTip.location.x)
                         let tipY = Float(indexTip.location.y)
                         
-                        // カメラ前方 40cm に投影
+                        // カメラ前方 40cm に手の球体を投影
                         let localX = (tipX - 0.5) * 0.4
                         let localY = (tipY - 0.5) * 0.4
                         let localPos = simd_make_float4(localX, localY, -0.4, 1.0)
-                        
-                        // 世界座標に変換
                         let worldPos = transform * localPos
                         
-                        // ピンチ判定
+                        // 1. ピンチ判定 (親指と人差し指の距離)
                         let distance = simd_distance(
                             simd_make_float2(Float(indexTip.location.x), Float(indexTip.location.y)),
                             simd_make_float2(Float(thumbTip.location.x), Float(thumbTip.location.y))
                         )
                         let pinchDetected = distance < 0.08
                         
+                        // 2. グー（Fist）の判定: 4本の指先が手首に対して付け根(MCP)より近くなっているか
+                        let wristPos = simd_make_float2(Float(wrist.location.x), Float(wrist.location.y))
+                        
+                        let indexTipDist = simd_distance(simd_make_float2(Float(indexTip.location.x), Float(indexTip.location.y)), wristPos)
+                        let indexMCPDist = simd_distance(simd_make_float2(Float(indexMCP.location.x), Float(indexMCP.location.y)), wristPos)
+                        
+                        let middleTipDist = simd_distance(simd_make_float2(Float(middleTip.location.x), Float(middleTip.location.y)), wristPos)
+                        let middleMCPDist = simd_distance(simd_make_float2(Float(middleMCP.location.x), Float(middleMCP.location.y)), wristPos)
+                        
+                        let ringTipDist = simd_distance(simd_make_float2(Float(ringTip.location.x), Float(ringTip.location.y)), wristPos)
+                        let ringMCPDist = simd_distance(simd_make_float2(Float(ringMCP.location.x), Float(ringMCP.location.y)), wristPos)
+                        
+                        let littleTipDist = simd_distance(simd_make_float2(Float(littleTip.location.x), Float(littleTip.location.y)), wristPos)
+                        let littleMCPDist = simd_distance(simd_make_float2(Float(littleMCP.location.x), Float(littleMCP.location.y)), wristPos)
+                        
+                        let fistDetected = (indexTipDist < indexMCPDist) &&
+                                           (middleTipDist < middleMCPDist) &&
+                                           (ringTipDist < ringMCPDist) &&
+                                           (littleTipDist < littleMCPDist)
+                        
                         DispatchQueue.main.async {
                             self.handPosition = simd_make_float3(worldPos.x, worldPos.y, worldPos.z)
                             self.isPinching = pinchDetected
+                            self.isFist = fistDetected
                             
-                            // つまんだ瞬間（エッジ検出）にパススルーをトグル切り替え
+                            // A. ピンチのトリガーでパススルー切り替え
                             if !self.wasPinching && pinchDetected {
                                 self.isPassThroughEnabled.toggle()
                             }
                             self.wasPinching = pinchDetected
+                            
+                            // B. グーのトリガーでLaunchPadメニュー切り替え
+                            if !self.wasFist && fistDetected {
+                                self.isMenuVisible.toggle()
+                                if self.isMenuVisible {
+                                    // メニュー表示時のカメラ位置の正面 50cm にメニューを固定する
+                                    var offsetMatrix = matrix_identity_float4x4
+                                    offsetMatrix.columns.3 = simd_make_float4(0, 0.05, -0.5, 1) // 正面50cm, 少し上
+                                    self.menuTransform = self.cameraTransform * offsetMatrix
+                                }
+                            }
+                            self.wasFist = fistDetected
                         }
                     } else {
                         clearHandState()
@@ -115,7 +167,9 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
         DispatchQueue.main.async {
             self.handPosition = nil
             self.isPinching = false
+            self.isFist = false
             self.wasPinching = false
+            self.wasFist = false
         }
     }
 }
@@ -146,7 +200,6 @@ struct VRViewContainer: UIViewRepresentable {
     @ObservedObject var tracker: ARTracker
     
     func makeUIView(context: Context) -> ARView {
-        // パススルーを表示できるようにカメラモードを .ar で初期化し、セッションを共有
         let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
         arView.session = tracker.session
         
@@ -167,11 +220,20 @@ struct VRViewContainer: UIViewRepresentable {
         let handMaterial = SimpleMaterial(color: .white, isMetallic: false)
         let handEntity = ModelEntity(mesh: handMesh, materials: [handMaterial])
         handEntity.name = "vrHand"
-        handEntity.scale = .zero // 最初は非表示
+        handEntity.scale = .zero
         
         let handAnchor = AnchorEntity(world: .zero)
         handAnchor.addChild(handEntity)
         arView.scene.addAnchor(handAnchor)
+        
+        // 4. LaunchPadメニューEntityの追加
+        let menuEntity = createLaunchPadEntity()
+        menuEntity.name = "vrMenu"
+        menuEntity.scale = .zero // 初期状態は非表示
+        
+        let menuAnchor = AnchorEntity(world: .zero)
+        menuAnchor.addChild(menuEntity)
+        arView.scene.addAnchor(menuAnchor)
         
         return arView
     }
@@ -197,7 +259,7 @@ struct VRViewContainer: UIViewRepresentable {
                 hand.position = handPos
                 hand.scale = [1, 1, 1]
                 
-                // ピンチ状態（またはパススルー有効状態）に応じて色を変更
+                // ピンチ状態に応じて色を変更
                 let color: UIColor = tracker.isPinching ? .green : .white
                 let material = SimpleMaterial(color: color, isMetallic: tracker.isPinching)
                 if var modelComp = hand.components[ModelComponent.self] as? ModelComponent {
@@ -208,31 +270,73 @@ struct VRViewContainer: UIViewRepresentable {
                 hand.scale = .zero
             }
         }
+        
+        // LaunchPadメニューの表示・位置同期
+        if let menu = uiView.scene.findEntity(named: "vrMenu") {
+            if tracker.isMenuVisible {
+                menu.transform.matrix = tracker.menuTransform
+                menu.scale = [1, 1, 1]
+                
+                // パススルー状態等でメニューのカラーやボタンの点灯を変えるビジュアル更新
+                if let btnPassthrough = menu.findEntity(named: "btnPassthrough") as? ModelEntity {
+                    let btnColor: UIColor = tracker.isPassThroughEnabled ? .systemGreen : .systemGray
+                    let btnMat = SimpleMaterial(color: btnColor, isMetallic: tracker.isPassThroughEnabled)
+                    btnPassthrough.model?.materials = [btnMat]
+                }
+            } else {
+                menu.scale = .zero
+            }
+        }
+    }
+    
+    // LaunchPadメニュー (プロトタイプ) の構築
+    private func createLaunchPadEntity() -> ModelEntity {
+        // メインパネル
+        let menuMaterial = SimpleMaterial(color: UIColor(red: 0.05, green: 0.1, blue: 0.2, alpha: 0.75), isMetallic: true)
+        let menuBase = ModelEntity(mesh: MeshResource.generateBox(width: 0.4, height: 0.28, depth: 0.01), materials: [menuMaterial])
+        
+        // タイトルバー (LaunchPadヘッダー)
+        let titleMat = SimpleMaterial(color: UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.9), isMetallic: true)
+        let titleBar = ModelEntity(mesh: MeshResource.generateBox(width: 0.36, height: 0.04, depth: 0.005), materials: [titleMat])
+        titleBar.position = [0, 0.1, 0.008]
+        menuBase.addChild(titleBar)
+        
+        // パススルー切り替え表示ボタン (プロトタイプ表示用)
+        let btnPassthrough = ModelEntity(mesh: MeshResource.generateBox(width: 0.15, height: 0.06, depth: 0.015), materials: [SimpleMaterial(color: .systemGray, isMetallic: false)])
+        btnPassthrough.name = "btnPassthrough"
+        btnPassthrough.position = [-0.09, -0.02, 0.01]
+        menuBase.addChild(btnPassthrough)
+        
+        // ダミーボタン
+        let btnMatB = SimpleMaterial(color: .systemOrange, isMetallic: false)
+        let btnB = ModelEntity(mesh: MeshResource.generateBox(width: 0.15, height: 0.06, depth: 0.015), materials: [btnMatB])
+        btnB.position = [0.09, -0.02, 0.01]
+        menuBase.addChild(btnB)
+        
+        return menuBase
     }
     
     // VRChat Home (Cozy Cabin風) の空間をモデリング
     private func setupVRChatHomeScene(arView: ARView) {
         let anchor = AnchorEntity(world: .zero)
         
-        // マテリアルの定義
-        let wallMaterial = SimpleMaterial(color: UIColor(red: 0.92, green: 0.90, blue: 0.85, alpha: 1.0), isMetallic: false) // 温かみのある壁
-        let woodFloorMaterial = SimpleMaterial(color: UIColor(red: 0.35, green: 0.22, blue: 0.12, alpha: 1.0), isMetallic: false) // ダークウッドの床
-        let woodFurnitureMaterial = SimpleMaterial(color: UIColor(red: 0.50, green: 0.32, blue: 0.18, alpha: 1.0), isMetallic: false) // コテージ風木製家具
-        let fireplaceStoneMaterial = SimpleMaterial(color: UIColor(white: 0.4, alpha: 1.0), isMetallic: false) // 暖炉の石
-        let fireplaceFireMaterial = SimpleMaterial(color: UIColor(red: 1.0, green: 0.4, blue: 0.0, alpha: 1.0), isMetallic: true) // 暖炉の炎（オレンジ発光風）
+        let wallMaterial = SimpleMaterial(color: UIColor(red: 0.92, green: 0.90, blue: 0.85, alpha: 1.0), isMetallic: false)
+        let woodFloorMaterial = SimpleMaterial(color: UIColor(red: 0.35, green: 0.22, blue: 0.12, alpha: 1.0), isMetallic: false)
+        let woodFurnitureMaterial = SimpleMaterial(color: UIColor(red: 0.50, green: 0.32, blue: 0.18, alpha: 1.0), isMetallic: false)
+        let fireplaceStoneMaterial = SimpleMaterial(color: UIColor(white: 0.4, alpha: 1.0), isMetallic: false)
+        let fireplaceFireMaterial = SimpleMaterial(color: UIColor(red: 1.0, green: 0.4, blue: 0.0, alpha: 1.0), isMetallic: true)
         
-        // 1. 部屋の構造
-        // 床 (Y = -1.2m)
+        // 床
         let floor = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: [woodFloorMaterial])
         floor.position = [0, -1.2, 0]
         anchor.addChild(floor)
         
-        // 天井 (Y = 1.8m)
+        // 天井
         let ceiling = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: [SimpleMaterial(color: UIColor(white: 0.85, alpha: 1.0), isMetallic: false)])
         ceiling.position = [0, 1.8, 0]
         anchor.addChild(ceiling)
         
-        // 奥の壁 (Z = -5m, VRChat Homeの景観用の大窓エリアを残すために左右に分割)
+        // 奥の壁 (大窓エリアを残すため左右分割)
         let backWallLeft = ModelEntity(mesh: MeshResource.generateBox(width: 3.5, height: 3, depth: 0.1), materials: [wallMaterial])
         backWallLeft.position = [-3.25, 0.3, -5]
         anchor.addChild(backWallLeft)
@@ -241,28 +345,27 @@ struct VRViewContainer: UIViewRepresentable {
         backWallRight.position = [3.25, 0.3, -5]
         anchor.addChild(backWallRight)
         
-        // 窓枠（梁）
+        // 窓枠
         let windowBeam = ModelEntity(mesh: MeshResource.generateBox(width: 3.0, height: 0.1, depth: 0.15), materials: [woodFurnitureMaterial])
         windowBeam.position = [0, 1.3, -5.0]
         anchor.addChild(windowBeam)
         
-        // 手前の壁 (Z = 5m)
+        // 手前の壁
         let frontWall = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 3, depth: 0.1), materials: [wallMaterial])
         frontWall.position = [0, 0.3, 5]
         anchor.addChild(frontWall)
         
-        // 左の壁 (X = -5m)
+        // 左の壁
         let leftWall = ModelEntity(mesh: MeshResource.generateBox(width: 0.1, height: 3, depth: 10), materials: [wallMaterial])
         leftWall.position = [-5, 0.3, 0]
         anchor.addChild(leftWall)
         
-        // 右の壁 (X = 5m)
+        // 右の壁
         let rightWall = ModelEntity(mesh: MeshResource.generateBox(width: 0.1, height: 3, depth: 10), materials: [wallMaterial])
         rightWall.position = [5, 0.3, 0]
         anchor.addChild(rightWall)
         
-        // 2. VRChat Home風の要素（暖炉・家具・インテリア）
-        // 暖炉 (右奥コーナー: X = 3.5m, Z = -4.0m)
+        // 暖炉 (右奥コーナー)
         let fireplaceBase = ModelEntity(mesh: MeshResource.generateBox(width: 1.5, height: 0.3, depth: 1.5), materials: [fireplaceStoneMaterial])
         fireplaceBase.position = [3.5, -1.05, -4.0]
         anchor.addChild(fireplaceBase)
@@ -279,12 +382,11 @@ struct VRViewContainer: UIViewRepresentable {
         fireplaceTop.position = [3.5, 0.4, -4.0]
         anchor.addChild(fireplaceTop)
         
-        // 暖炉の中の炎 (オレンジに輝く球体)
         let fire = ModelEntity(mesh: MeshResource.generateSphere(radius: 0.18), materials: [fireplaceFireMaterial])
         fire.position = [3.5, -0.8, -4.0]
         anchor.addChild(fire)
         
-        // 木製ローテーブル
+        // 木製テーブル
         let lowTable = ModelEntity(mesh: MeshResource.generateBox(width: 1.5, height: 0.08, depth: 0.9), materials: [woodFurnitureMaterial])
         lowTable.position = [-0.5, -0.85, -1.8]
         anchor.addChild(lowTable)
@@ -301,8 +403,8 @@ struct VRViewContainer: UIViewRepresentable {
             anchor.addChild(leg)
         }
         
-        // 大きなソファ (Cozyな布ソファを模したもの)
-        let sofaFabricMaterial = SimpleMaterial(color: UIColor(red: 0.22, green: 0.28, blue: 0.24, alpha: 1.0), isMetallic: false) // 深緑
+        // ソファ
+        let sofaFabricMaterial = SimpleMaterial(color: UIColor(red: 0.22, green: 0.28, blue: 0.24, alpha: 1.0), isMetallic: false)
         let sofaSeat = ModelEntity(mesh: MeshResource.generateBox(width: 2.2, height: 0.35, depth: 0.85), materials: [sofaFabricMaterial])
         sofaSeat.position = [-0.5, -0.9, 0.4]
         anchor.addChild(sofaSeat)
@@ -319,13 +421,13 @@ struct VRViewContainer: UIViewRepresentable {
         armRight.position = [0.6, -0.8, 0.4]
         anchor.addChild(armRight)
         
-        // ラグマット (テーブルの下に敷く)
-        let rugMaterial = SimpleMaterial(color: UIColor(red: 0.85, green: 0.80, blue: 0.72, alpha: 1.0), isMetallic: false) // ベージュ
+        // ラグマット
+        let rugMaterial = SimpleMaterial(color: UIColor(red: 0.85, green: 0.80, blue: 0.72, alpha: 1.0), isMetallic: false)
         let rug = ModelEntity(mesh: MeshResource.generateBox(width: 2.4, height: 0.01, depth: 1.8), materials: [rugMaterial])
         rug.position = [-0.5, -1.19, -1.8]
         anchor.addChild(rug)
         
-        // 3. 窓の外の景観（星空を模したドットの配置）
+        // 窓の外の星
         let starMaterial = SimpleMaterial(color: .white, isMetallic: true)
         let starMesh = MeshResource.generateSphere(radius: 0.04)
         let starPositions: [SIMD3<Float>] = [
