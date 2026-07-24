@@ -18,11 +18,14 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     
     // 検出された手の3D世界座標
     @Published var handPosition: simd_float3? = nil
-    // 人差し指と親指がピンチ（つまむ）されているか
+    // 現在ピンチ（つまむ）されているか
     @Published var isPinching: Bool = false
+    // パススルー（背景カメラ映像）が有効か
+    @Published var isPassThroughEnabled: Bool = false
     
     private var handPoseRequest = VNDetectHumanHandPoseRequest()
     private var frameCounter = 0
+    private var wasPinching: Bool = false // 前回のピンチ状態（エッジ検出用）
     
     override init() {
         super.init()
@@ -61,19 +64,16 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             do {
                 try handler.perform([handPoseRequest])
                 if let observation = handPoseRequest.results?.first {
-                    // 人差し指の先端と親指の先端、および手首のポイントを取得
                     let indexPoints = try observation.recognizedPoints(.indexFinger)
                     let thumbPoints = try observation.recognizedPoints(.thumb)
                     
                     if let indexTip = indexPoints[.indexTip], indexTip.confidence > 0.5,
                        let thumbTip = thumbPoints[.thumbTip], thumbTip.confidence > 0.5 {
                         
-                        // Vision座標系（左下0,0 ~ 右上1,1）
                         let tipX = Float(indexTip.location.x)
                         let tipY = Float(indexTip.location.y)
                         
-                        // カメラ前方 40cm (Z = -0.4m) の平面上に投影
-                        // 画像上の位置に応じてX、Y座標をオフセット
+                        // カメラ前方 40cm に投影
                         let localX = (tipX - 0.5) * 0.4
                         let localY = (tipY - 0.5) * 0.4
                         let localPos = simd_make_float4(localX, localY, -0.4, 1.0)
@@ -81,7 +81,7 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                         // 世界座標に変換
                         let worldPos = transform * localPos
                         
-                        // 親指と人差し指の画像上での距離からピンチ判定
+                        // ピンチ判定
                         let distance = simd_distance(
                             simd_make_float2(Float(indexTip.location.x), Float(indexTip.location.y)),
                             simd_make_float2(Float(thumbTip.location.x), Float(thumbTip.location.y))
@@ -91,6 +91,12 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                         DispatchQueue.main.async {
                             self.handPosition = simd_make_float3(worldPos.x, worldPos.y, worldPos.z)
                             self.isPinching = pinchDetected
+                            
+                            // つまんだ瞬間（エッジ検出）にパススルーをトグル切り替え
+                            if !self.wasPinching && pinchDetected {
+                                self.isPassThroughEnabled.toggle()
+                            }
+                            self.wasPinching = pinchDetected
                         }
                     } else {
                         clearHandState()
@@ -109,6 +115,7 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
         DispatchQueue.main.async {
             self.handPosition = nil
             self.isPinching = false
+            self.wasPinching = false
         }
     }
 }
@@ -139,10 +146,12 @@ struct VRViewContainer: UIViewRepresentable {
     @ObservedObject var tracker: ARTracker
     
     func makeUIView(context: Context) -> ARView {
-        let arView = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+        // パススルーを表示できるようにカメラモードを .ar で初期化し、セッションを共有
+        let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
+        arView.session = tracker.session
         
-        // 1. 家のようなバーチャル空間を構築
-        setupVRHouseScene(arView: arView)
+        // 1. VRChat Home風のバーチャル空間を構築
+        setupVRChatHomeScene(arView: arView)
         
         // 2. カスタムカメラの設定
         let cameraEntity = PerspectiveCamera()
@@ -168,6 +177,9 @@ struct VRViewContainer: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: ARView, context: Context) {
+        // パススルー状態に基づいて背景の描画を切り替える
+        uiView.environment.background = tracker.isPassThroughEnabled ? .cameraFeed : .color(.black)
+        
         // カメラの位置・回転をARKitに同期
         if let camera = uiView.scene.findEntity(named: "vrCamera") {
             let baseTransform = tracker.cameraTransform
@@ -185,7 +197,7 @@ struct VRViewContainer: UIViewRepresentable {
                 hand.position = handPos
                 hand.scale = [1, 1, 1]
                 
-                // ピンチ時はマテリアルを緑色に変更
+                // ピンチ状態（またはパススルー有効状態）に応じて色を変更
                 let color: UIColor = tracker.isPinching ? .green : .white
                 let material = SimpleMaterial(color: color, isMetallic: tracker.isPinching)
                 if var modelComp = hand.components[ModelComponent.self] as? ModelComponent {
@@ -198,17 +210,41 @@ struct VRViewContainer: UIViewRepresentable {
         }
     }
     
-    // 家のような空間をモデリング
-    private func setupVRHouseScene(arView: ARView) {
+    // VRChat Home (Cozy Cabin風) の空間をモデリング
+    private func setupVRChatHomeScene(arView: ARView) {
         let anchor = AnchorEntity(world: .zero)
         
-        // 壁のマテリアル（オフホワイト）
-        let wallMaterial = SimpleMaterial(color: UIColor(white: 0.9, alpha: 1.0), isMetallic: false)
+        // マテリアルの定義
+        let wallMaterial = SimpleMaterial(color: UIColor(red: 0.92, green: 0.90, blue: 0.85, alpha: 1.0), isMetallic: false) // 温かみのある壁
+        let woodFloorMaterial = SimpleMaterial(color: UIColor(red: 0.35, green: 0.22, blue: 0.12, alpha: 1.0), isMetallic: false) // ダークウッドの床
+        let woodFurnitureMaterial = SimpleMaterial(color: UIColor(red: 0.50, green: 0.32, blue: 0.18, alpha: 1.0), isMetallic: false) // コテージ風木製家具
+        let fireplaceStoneMaterial = SimpleMaterial(color: UIColor(white: 0.4, alpha: 1.0), isMetallic: false) // 暖炉の石
+        let fireplaceFireMaterial = SimpleMaterial(color: UIColor(red: 1.0, green: 0.4, blue: 0.0, alpha: 1.0), isMetallic: true) // 暖炉の炎（オレンジ発光風）
         
-        // 奥の壁 (Z = -5m)
-        let backWall = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 3, depth: 0.1), materials: [wallMaterial])
-        backWall.position = [0, 0.3, -5]
-        anchor.addChild(backWall)
+        // 1. 部屋の構造
+        // 床 (Y = -1.2m)
+        let floor = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: [woodFloorMaterial])
+        floor.position = [0, -1.2, 0]
+        anchor.addChild(floor)
+        
+        // 天井 (Y = 1.8m)
+        let ceiling = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: SimpleMaterial(color: UIColor(white: 0.85, alpha: 1.0), isMetallic: false))
+        ceiling.position = [0, 1.8, 0]
+        anchor.addChild(ceiling)
+        
+        // 奥の壁 (Z = -5m, VRChat Homeの景観用の大窓エリアを残すために左右に分割)
+        let backWallLeft = ModelEntity(mesh: MeshResource.generateBox(width: 3.5, height: 3, depth: 0.1), materials: [wallMaterial])
+        backWallLeft.position = [-3.25, 0.3, -5]
+        anchor.addChild(backWallLeft)
+        
+        let backWallRight = ModelEntity(mesh: MeshResource.generateBox(width: 3.5, height: 3, depth: 0.1), materials: [wallMaterial])
+        backWallRight.position = [3.25, 0.3, -5]
+        anchor.addChild(backWallRight)
+        
+        // 窓枠（梁）
+        let windowBeam = ModelEntity(mesh: MeshResource.generateBox(width: 3.0, height: 0.1, depth: 0.15), materials: [woodFurnitureMaterial])
+        windowBeam.position = [0, 1.3, -5.0]
+        anchor.addChild(windowBeam)
         
         // 手前の壁 (Z = 5m)
         let frontWall = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 3, depth: 0.1), materials: [wallMaterial])
@@ -225,74 +261,82 @@ struct VRViewContainer: UIViewRepresentable {
         rightWall.position = [5, 0.3, 0]
         anchor.addChild(rightWall)
         
-        // 天井 (Y = 1.8m)
-        let ceilingMaterial = SimpleMaterial(color: UIColor(white: 0.95, alpha: 1.0), isMetallic: false)
-        let ceiling = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: [ceilingMaterial])
-        ceiling.position = [0, 1.8, 0]
-        anchor.addChild(ceiling)
+        // 2. VRChat Home風の要素（暖炉・家具・インテリア）
+        // 暖炉 (右奥コーナー: X = 3.5m, Z = -4.0m)
+        let fireplaceBase = ModelEntity(mesh: MeshResource.generateBox(width: 1.5, height: 0.3, depth: 1.5), materials: [fireplaceStoneMaterial])
+        fireplaceBase.position = [3.5, -1.05, -4.0]
+        anchor.addChild(fireplaceBase)
         
-        // 床 (Y = -1.2m, 木目調の茶色)
-        let floorMaterial = SimpleMaterial(color: UIColor(red: 0.45, green: 0.35, blue: 0.25, alpha: 1.0), isMetallic: false)
-        let floor = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: [floorMaterial])
-        floor.position = [0, -1.2, 0]
-        anchor.addChild(floor)
+        let fireplaceLeftWall = ModelEntity(mesh: MeshResource.generateBox(width: 0.3, height: 1.2, depth: 1.2), materials: [fireplaceStoneMaterial])
+        fireplaceLeftWall.position = [2.9, -0.3, -4.0]
+        anchor.addChild(fireplaceLeftWall)
         
-        // --- 家具モデリング ---
-        let woodMaterial = SimpleMaterial(color: UIColor(red: 0.55, green: 0.38, blue: 0.22, alpha: 1.0), isMetallic: false)
+        let fireplaceBackWall = ModelEntity(mesh: MeshResource.generateBox(width: 1.5, height: 1.2, depth: 0.3), materials: [fireplaceStoneMaterial])
+        fireplaceBackWall.position = [3.5, -0.3, -4.6]
+        anchor.addChild(fireplaceBackWall)
         
-        // 中央のテーブル
-        let tableTop = ModelEntity(mesh: MeshResource.generateBox(width: 1.6, height: 0.08, depth: 1.0), materials: [woodMaterial])
-        tableTop.position = [0, -0.6, -2.0]
-        anchor.addChild(tableTop)
+        let fireplaceTop = ModelEntity(mesh: MeshResource.generateBox(width: 1.6, height: 0.2, depth: 1.6), materials: [woodFurnitureMaterial])
+        fireplaceTop.position = [3.5, 0.4, -4.0]
+        anchor.addChild(fireplaceTop)
+        
+        // 暖炉の中の炎 (オレンジに輝く球体)
+        let fire = ModelEntity(mesh: MeshResource.generateSphere(radius: 0.18), materials: [fireplaceFireMaterial])
+        fire.position = [3.5, -0.8, -4.0]
+        anchor.addChild(fire)
+        
+        // 木製ローテーブル
+        let lowTable = ModelEntity(mesh: MeshResource.generateBox(width: 1.5, height: 0.08, depth: 0.9), materials: [woodFurnitureMaterial])
+        lowTable.position = [-0.5, -0.85, -1.8]
+        anchor.addChild(lowTable)
         
         // テーブルの脚
-        let legMesh = MeshResource.generateBox(width: 0.08, height: 0.6, depth: 0.08)
+        let legMesh = MeshResource.generateBox(width: 0.08, height: 0.35, depth: 0.08)
         let legPositions: [SIMD3<Float>] = [
-            [-0.7, -0.9, -2.4], [0.7, -0.9, -2.4],
-            [-0.7, -0.9, -1.6], [0.7, -0.9, -1.6]
+            [-1.1, -1.025, -2.15], [0.1, -1.025, -2.15],
+            [-1.1, -1.025, -1.45], [0.1, -1.025, -1.45]
         ]
         for pos in legPositions {
-            let leg = ModelEntity(mesh: legMesh, materials: [woodMaterial])
+            let leg = ModelEntity(mesh: legMesh, materials: [woodFurnitureMaterial])
             leg.position = pos
             anchor.addChild(leg)
         }
         
-        // テレビボードとテレビ (奥の壁際)
-        let board = ModelEntity(mesh: MeshResource.generateBox(width: 2.2, height: 0.35, depth: 0.45), materials: [woodMaterial])
-        board.position = [0, -1.0, -4.5]
-        anchor.addChild(board)
-        
-        let tvMaterial = SimpleMaterial(color: UIColor(white: 0.15, alpha: 1.0), isMetallic: true)
-        let tv = ModelEntity(mesh: MeshResource.generateBox(width: 1.4, height: 0.8, depth: 0.05), materials: [tvMaterial])
-        tv.position = [0, -0.4, -4.5]
-        anchor.addChild(tv)
-        
-        // ソファ (手前側、テレビと対向)
-        let sofaMaterial = SimpleMaterial(color: UIColor(red: 0.25, green: 0.35, blue: 0.45, alpha: 1.0), isMetallic: false)
-        let sofaSeat = ModelEntity(mesh: MeshResource.generateBox(width: 2.0, height: 0.4, depth: 0.75), materials: [sofaMaterial])
-        sofaSeat.position = [0, -0.9, 1.0]
+        // 大きなソファ (Cozyな布ソファを模したもの)
+        let sofaFabricMaterial = SimpleMaterial(color: UIColor(red: 0.22, green: 0.28, blue: 0.24, alpha: 1.0), isMetallic: false) // 深緑
+        let sofaSeat = ModelEntity(mesh: MeshResource.generateBox(width: 2.2, height: 0.35, depth: 0.85), materials: [sofaFabricMaterial])
+        sofaSeat.position = [-0.5, -0.9, 0.4]
         anchor.addChild(sofaSeat)
         
-        let sofaBack = ModelEntity(mesh: MeshResource.generateBox(width: 2.0, height: 0.8, depth: 0.15), materials: [sofaMaterial])
-        sofaBack.position = [0, -0.5, 1.35]
+        let sofaBack = ModelEntity(mesh: MeshResource.generateBox(width: 2.2, height: 0.7, depth: 0.18), materials: [sofaFabricMaterial])
+        sofaBack.position = [-0.5, -0.55, 0.85]
         anchor.addChild(sofaBack)
         
-        // ドア (左壁面)
-        let doorMaterial = SimpleMaterial(color: UIColor(red: 0.45, green: 0.22, blue: 0.08, alpha: 1.0), isMetallic: false)
-        let door = ModelEntity(mesh: MeshResource.generateBox(width: 0.05, height: 2.0, depth: 0.95), materials: [doorMaterial])
-        door.position = [-4.95, -0.2, -1.5]
-        anchor.addChild(door)
+        let armLeft = ModelEntity(mesh: MeshResource.generateBox(width: 0.18, height: 0.55, depth: 0.85), materials: [sofaFabricMaterial])
+        armLeft.position = [-1.6, -0.8, 0.4]
+        anchor.addChild(armLeft)
         
-        // 観葉植物 (右奥コーナー)
-        let potMaterial = SimpleMaterial(color: .lightGray, isMetallic: false)
-        let pot = ModelEntity(mesh: MeshResource.generateBox(width: 0.35, height: 0.45, depth: 0.35), materials: [potMaterial])
-        pot.position = [4.0, -0.95, -4.0]
-        anchor.addChild(pot)
+        let armRight = ModelEntity(mesh: MeshResource.generateBox(width: 0.18, height: 0.55, depth: 0.85), materials: [sofaFabricMaterial])
+        armRight.position = [0.6, -0.8, 0.4]
+        anchor.addChild(armRight)
         
-        let leafMaterial = SimpleMaterial(color: .systemGreen, isMetallic: false)
-        let leaf = ModelEntity(mesh: MeshResource.generateSphere(radius: 0.35), materials: [leafMaterial])
-        leaf.position = [4.0, -0.5, -4.0]
-        anchor.addChild(leaf)
+        // ラグマット (テーブルの下に敷く)
+        let rugMaterial = SimpleMaterial(color: UIColor(red: 0.85, green: 0.80, blue: 0.72, alpha: 1.0), isMetallic: false) // ベージュ
+        let rug = ModelEntity(mesh: MeshResource.generateBox(width: 2.4, height: 0.01, depth: 1.8), materials: [rugMaterial])
+        rug.position = [-0.5, -1.19, -1.8]
+        anchor.addChild(rug)
+        
+        // 3. 窓の外の景観（星空を模したドットの配置）
+        let starMaterial = SimpleMaterial(color: .white, isMetallic: true)
+        let starMesh = MeshResource.generateSphere(radius: 0.04)
+        let starPositions: [SIMD3<Float>] = [
+            [-1.5, 1.0, -10], [0.0, 1.4, -12], [1.8, 0.8, -10],
+            [-0.8, 0.5, -11], [1.2, 1.6, -11], [-2.2, 1.7, -9]
+        ]
+        for starPos in starPositions {
+            let star = ModelEntity(mesh: starMesh, materials: [starMaterial])
+            star.position = starPos
+            anchor.addChild(star)
+        }
         
         arView.scene.addAnchor(anchor)
     }
