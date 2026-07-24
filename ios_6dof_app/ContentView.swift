@@ -22,10 +22,11 @@ struct VRViewContainer: UIViewRepresentable {
     @ObservedObject var tracker: ARTracker
 
     func makeUIView(context: Context) -> ARView {
-        let arView = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+        // カメラ映像を表示できるように .ar モードで初期化し、共通セッションを割り当てる
+        let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
         arView.session = tracker.session
 
-        // 1. 部屋のシーン構築
+        // 1. 部屋のバーチャルシーン構築
         setupVRChatHomeScene(in: arView)
 
         // 2. カスタムカメラ
@@ -36,7 +37,7 @@ struct VRViewContainer: UIViewRepresentable {
         camAnchor.addChild(camera)
         arView.scene.addAnchor(camAnchor)
 
-        // 3. ハンドスケルトン（複数球体 + ボーン）
+        // 3. ハンドスケルトン（リアルな肉付け＋骨格）
         let handAnchor = makeHandSkeletonAnchor()
         arView.scene.addAnchor(handAnchor)
 
@@ -51,10 +52,21 @@ struct VRViewContainer: UIViewRepresentable {
         ballAnchor.addChild(ball)
         arView.scene.addAnchor(ballAnchor)
 
+        // 5. 設定パネル (3D UI)
+        let panelEntity = makeSettingsPanelEntity()
+        let panelAnchor = AnchorEntity(world: .zero)
+        panelAnchor.addChild(panelEntity)
+        arView.scene.addAnchor(panelAnchor)
+
         return arView
     }
 
     func updateUIView(_ uiView: ARView, context: Context) {
+        // パススルー切り替え（現世カメラ映像 vs 純粋VRモード）
+        let isPassthrough = tracker.isPassthroughEnabled
+        uiView.environment.background = isPassthrough ? .cameraFeed() : .color(.black)
+        setHouseVisibility(in: uiView, visible: !isPassthrough)
+
         // カメラ位置・回転をARKitに同期（IPDオフセット付き）
         if let cam = uiView.scene.findEntity(named: "vrCamera") {
             let ipdOffset: Float = (eye == .left) ? -0.032 : 0.032
@@ -69,12 +81,17 @@ struct VRViewContainer: UIViewRepresentable {
                 handAnchor: handAnchor,
                 joints: tracker.handJoints,
                 isPinching: tracker.isPinching,
-                isGrabbing: tracker.isGrabbingBall
+                isGrabbing: tracker.isGrabbingBall || tracker.isGrabbingPanel
             )
         }
 
         // ボールの位置更新
         uiView.scene.findEntity(named: "vrBall")?.position = tracker.ballPosition
+
+        // 設定パネルのインタラクション・位置更新
+        if let panel = uiView.scene.findEntity(named: "settingsPanel") as? ModelEntity {
+            updateSettingsPanel(panelEntity: panel, tracker: tracker)
+        }
     }
 }
 

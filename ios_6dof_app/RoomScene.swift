@@ -4,39 +4,34 @@ import UIKit
 /// 部屋の静的シーン（VRChat Cozy Cabin風）をセットアップする
 func setupVRChatHomeScene(in arView: ARView) {
     let anchor = AnchorEntity(world: .zero)
+    anchor.name = "houseAnchor"
 
     // MARK: - マテリアル定義
-    // 壁: 暖かみのあるオフホワイト、微ラフ
     var wallMat = PhysicallyBasedMaterial()
     wallMat.baseColor = .init(tint: UIColor(red: 0.93, green: 0.91, blue: 0.86, alpha: 1))
     wallMat.roughness = .init(floatLiteral: 0.9)
     wallMat.metallic  = .init(floatLiteral: 0.0)
 
-    // 床: ダークウッド（ヘリンボーン調を模した暗い茶）
     var floorMat = PhysicallyBasedMaterial()
     floorMat.baseColor = .init(tint: UIColor(red: 0.22, green: 0.14, blue: 0.08, alpha: 1))
     floorMat.roughness = .init(floatLiteral: 0.6)
     floorMat.metallic  = .init(floatLiteral: 0.0)
 
-    // 天井: 淡いベージュ梁あり
     var ceilMat = PhysicallyBasedMaterial()
     ceilMat.baseColor = .init(tint: UIColor(red: 0.88, green: 0.85, blue: 0.80, alpha: 1))
     ceilMat.roughness = .init(floatLiteral: 0.95)
     ceilMat.metallic  = .init(floatLiteral: 0.0)
 
-    // 木材家具
     var woodMat = PhysicallyBasedMaterial()
     woodMat.baseColor = .init(tint: UIColor(red: 0.42, green: 0.26, blue: 0.12, alpha: 1))
     woodMat.roughness = .init(floatLiteral: 0.65)
     woodMat.metallic  = .init(floatLiteral: 0.0)
 
-    // 石材（暖炉）
     var stoneMat = PhysicallyBasedMaterial()
     stoneMat.baseColor = .init(tint: UIColor(red: 0.45, green: 0.42, blue: 0.40, alpha: 1))
     stoneMat.roughness = .init(floatLiteral: 0.92)
     stoneMat.metallic  = .init(floatLiteral: 0.0)
 
-    // 炎
     var fireMat = PhysicallyBasedMaterial()
     fireMat.baseColor      = .init(tint: UIColor(red: 1.0, green: 0.45, blue: 0.0, alpha: 1))
     fireMat.roughness      = .init(floatLiteral: 1.0)
@@ -44,49 +39,41 @@ func setupVRChatHomeScene(in arView: ARView) {
     fireMat.emissiveColor  = .init(color: UIColor(red: 1.0, green: 0.4, blue: 0.0, alpha: 1))
     fireMat.emissiveIntensity = 3.5
 
-    // ファブリック（ソファ）
     var fabricMat = PhysicallyBasedMaterial()
     fabricMat.baseColor = .init(tint: UIColor(red: 0.18, green: 0.24, blue: 0.20, alpha: 1))
     fabricMat.roughness = .init(floatLiteral: 0.98)
     fabricMat.metallic  = .init(floatLiteral: 0.0)
 
-    // ラグ
     var rugMat = PhysicallyBasedMaterial()
     rugMat.baseColor = .init(tint: UIColor(red: 0.78, green: 0.70, blue: 0.58, alpha: 1))
     rugMat.roughness = .init(floatLiteral: 1.0)
     rugMat.metallic  = .init(floatLiteral: 0.0)
 
-    // ガラス（窓）
     var glassMat = PhysicallyBasedMaterial()
     glassMat.baseColor       = .init(tint: UIColor(red: 0.7, green: 0.85, blue: 0.95, alpha: 0.25))
     glassMat.roughness       = .init(floatLiteral: 0.05)
     glassMat.metallic        = .init(floatLiteral: 0.0)
     glassMat.blending        = .transparent(opacity: .init(floatLiteral: 0.25))
 
-    // 星
     var starMat = PhysicallyBasedMaterial()
     starMat.baseColor        = .init(tint: .white)
     starMat.emissiveColor    = .init(color: .white)
     starMat.emissiveIntensity = 2.0
 
-    // TVスクリーン（暗いグロス）
     var tvMat = PhysicallyBasedMaterial()
     tvMat.baseColor = .init(tint: UIColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1))
     tvMat.roughness = .init(floatLiteral: 0.05)
     tvMat.metallic  = .init(floatLiteral: 0.8)
 
     // MARK: - 部屋の構造
-    // 床
     let floor = ModelEntity(mesh: .generateBox(width: 10, height: 0.12, depth: 10), materials: [floorMat])
     floor.position = [0, -1.26, 0]
     anchor.addChild(floor)
 
-    // 天井
     let ceiling = ModelEntity(mesh: .generateBox(width: 10, height: 0.12, depth: 10), materials: [ceilMat])
     ceiling.position = [0, 1.86, 0]
     anchor.addChild(ceiling)
 
-    // 天井梁（横2本）
     for xOff: Float in [-2.5, 2.5] {
         var beamMat = PhysicallyBasedMaterial()
         beamMat.baseColor = .init(tint: UIColor(red: 0.32, green: 0.20, blue: 0.10, alpha: 1))
@@ -96,7 +83,6 @@ func setupVRChatHomeScene(in arView: ARView) {
         anchor.addChild(beam)
     }
 
-    // 奥の壁（大窓用に左右分割）
     let backWallL = ModelEntity(mesh: .generateBox(width: 3.2, height: 3.2, depth: 0.12), materials: [wallMat])
     backWallL.position = [-3.4, 0.2, -5]
     anchor.addChild(backWallL)
@@ -104,7 +90,6 @@ func setupVRChatHomeScene(in arView: ARView) {
     backWallR.position = [3.4, 0.2, -5]
     anchor.addChild(backWallR)
 
-    // 窓枠（上下左右の枠）
     let winFrameTop  = ModelEntity(mesh: .generateBox(width: 3.8, height: 0.12, depth: 0.15), materials: [woodMat])
     winFrameTop.position = [0, 1.3, -5.0]
     anchor.addChild(winFrameTop)
@@ -117,12 +102,10 @@ func setupVRChatHomeScene(in arView: ARView) {
     let winFrameR    = ModelEntity(mesh: .generateBox(width: 0.12, height: 1.92, depth: 0.15), materials: [woodMat])
     winFrameR.position = [1.84, 0.36, -5.0]
     anchor.addChild(winFrameR)
-    // 窓ガラス
     let windowGlass  = ModelEntity(mesh: .generateBox(width: 3.6, height: 1.92, depth: 0.02), materials: [glassMat])
     windowGlass.position = [0, 0.36, -4.98]
     anchor.addChild(windowGlass)
 
-    // 手前・左右の壁
     for (mesh, pos) in [
         (MeshResource.generateBox(width: 10, height: 3.2, depth: 0.12), SIMD3<Float>(0, 0.2, 5)),
         (MeshResource.generateBox(width: 0.12, height: 3.2, depth: 10), SIMD3<Float>(-5, 0.2, 0)),
@@ -133,7 +116,6 @@ func setupVRChatHomeScene(in arView: ARView) {
         anchor.addChild(w)
     }
 
-    // 幅木（baseboards）
     var skirtMat = PhysicallyBasedMaterial()
     skirtMat.baseColor = .init(tint: UIColor(red: 0.95, green: 0.93, blue: 0.90, alpha: 1))
     skirtMat.roughness = .init(floatLiteral: 0.5)
@@ -148,29 +130,24 @@ func setupVRChatHomeScene(in arView: ARView) {
         anchor.addChild(sb)
     }
 
-    // MARK: - 暖炉（右奥コーナー）
-    // 台座
+    // MARK: - 暖炉
     let fpBase = ModelEntity(mesh: .generateBox(width: 1.8, height: 0.25, depth: 1.8), materials: [stoneMat])
     fpBase.position = [3.5, -1.13, -4.1]
     anchor.addChild(fpBase)
-    // 側面壁
     let fpLWall = ModelEntity(mesh: .generateBox(width: 0.28, height: 1.4, depth: 1.4), materials: [stoneMat])
     fpLWall.position = [2.7, -0.4, -4.1]
     anchor.addChild(fpLWall)
     let fpBWall = ModelEntity(mesh: .generateBox(width: 1.8, height: 1.4, depth: 0.28), materials: [stoneMat])
     fpBWall.position = [3.5, -0.4, -4.74]
     anchor.addChild(fpBWall)
-    // マントルピース
     let fpMantel = ModelEntity(mesh: .generateBox(width: 2.0, height: 0.14, depth: 0.55), materials: [woodMat])
     fpMantel.position = [3.5, 0.35, -4.1]
     anchor.addChild(fpMantel)
-    // 炎 x3（深み表現）
     for (off, sc): (SIMD3<Float>, Float) in [([0, 0, 0], 0.15), ([-0.1, -0.03, 0.05], 0.09), ([0.1, -0.05, 0.04], 0.07)] {
         let f = ModelEntity(mesh: .generateSphere(radius: sc), materials: [fireMat])
         f.position = [3.5 + off.x, -0.85 + off.y, -4.1 + off.z]
         anchor.addChild(f)
     }
-    // 暖炉前のレンガ風床（少し赤みの石）
     var brickMat = PhysicallyBasedMaterial()
     brickMat.baseColor = .init(tint: UIColor(red: 0.52, green: 0.38, blue: 0.30, alpha: 1))
     brickMat.roughness = .init(floatLiteral: 0.95)
@@ -179,11 +156,9 @@ func setupVRChatHomeScene(in arView: ARView) {
     anchor.addChild(hearth)
 
     // MARK: - 家具
-    // ローテーブル（ウォールナット調）
     let tableTop = ModelEntity(mesh: .generateBox(width: 1.5, height: 0.06, depth: 0.9), materials: [woodMat])
     tableTop.position = [-0.5, -0.85, -1.8]
     anchor.addChild(tableTop)
-    // テーブル脚
     let legMesh = MeshResource.generateBox(width: 0.06, height: 0.38, depth: 0.06)
     for pos: SIMD3<Float> in [[-1.18, -1.04, -2.2], [0.18, -1.04, -2.2],
                                 [-1.18, -1.04, -1.4], [0.18, -1.04, -1.4]] {
@@ -192,7 +167,6 @@ func setupVRChatHomeScene(in arView: ARView) {
         anchor.addChild(leg)
     }
 
-    // ソファ（大型L型を簡略化）
     let seat = ModelEntity(mesh: .generateBox(width: 2.4, height: 0.30, depth: 0.90), materials: [fabricMat])
     seat.position = [-0.3, -0.95, 0.55]
     anchor.addChild(seat)
@@ -204,7 +178,6 @@ func setupVRChatHomeScene(in arView: ARView) {
         arm.position = [xp, -0.80, 0.55]
         anchor.addChild(arm)
     }
-    // ソファのクッション
     var cushMat = PhysicallyBasedMaterial()
     cushMat.baseColor = .init(tint: UIColor(red: 0.28, green: 0.36, blue: 0.30, alpha: 1))
     cushMat.roughness = .init(floatLiteral: 0.95)
@@ -214,19 +187,16 @@ func setupVRChatHomeScene(in arView: ARView) {
         anchor.addChild(cush)
     }
 
-    // ラグマット
     let rug = ModelEntity(mesh: .generateBox(width: 2.6, height: 0.015, depth: 2.0), materials: [rugMat])
     rug.position = [-0.3, -1.19, -1.5]
     anchor.addChild(rug)
 
-    // TVボード & テレビ（暖炉の向かい側）
     let tvBoard = ModelEntity(mesh: .generateBox(width: 2.4, height: 0.40, depth: 0.50), materials: [woodMat])
     tvBoard.position = [0, -1.0, -4.8]
     anchor.addChild(tvBoard)
     let tvScreen = ModelEntity(mesh: .generateBox(width: 1.6, height: 0.92, depth: 0.05), materials: [tvMat])
     tvScreen.position = [0, -0.45, -4.76]
     anchor.addChild(tvScreen)
-    // TVフレーム
     var tvFrameMat = PhysicallyBasedMaterial()
     tvFrameMat.baseColor = .init(tint: UIColor(red: 0.18, green: 0.18, blue: 0.18, alpha: 1))
     tvFrameMat.roughness = .init(floatLiteral: 0.3)
@@ -235,14 +205,12 @@ func setupVRChatHomeScene(in arView: ARView) {
     tvFrame.position = [0, -0.45, -4.78]
     anchor.addChild(tvFrame)
 
-    // ドア（左壁）
     var doorMat = PhysicallyBasedMaterial()
     doorMat.baseColor = .init(tint: UIColor(red: 0.30, green: 0.16, blue: 0.08, alpha: 1))
     doorMat.roughness = .init(floatLiteral: 0.6)
     let door = ModelEntity(mesh: .generateBox(width: 0.07, height: 2.1, depth: 1.05), materials: [doorMat])
     door.position = [-4.97, -0.15, -2.0]
     anchor.addChild(door)
-    // ドアノブ
     var knobMat = PhysicallyBasedMaterial()
     knobMat.baseColor = .init(tint: UIColor(red: 0.8, green: 0.65, blue: 0.2, alpha: 1))
     knobMat.roughness = .init(floatLiteral: 0.2)
@@ -251,7 +219,6 @@ func setupVRChatHomeScene(in arView: ARView) {
     knob.position = [-4.90, -0.15, -1.57]
     anchor.addChild(knob)
 
-    // 観葉植物（左奥コーナー）
     var potMat = PhysicallyBasedMaterial()
     potMat.baseColor = .init(tint: UIColor(red: 0.55, green: 0.45, blue: 0.35, alpha: 1))
     potMat.roughness = .init(floatLiteral: 0.85)
@@ -267,11 +234,9 @@ func setupVRChatHomeScene(in arView: ARView) {
         anchor.addChild(leaf)
     }
 
-    // 棚板 + 装飾（暖炉の上）
     let shelf = ModelEntity(mesh: .generateBox(width: 0.8, height: 0.06, depth: 0.20), materials: [woodMat])
     shelf.position = [3.5, 0.42, -4.62]
     anchor.addChild(shelf)
-    // 写真フレームを模した小箱
     var frameMat = PhysicallyBasedMaterial()
     frameMat.baseColor = .init(tint: UIColor(red: 0.7, green: 0.58, blue: 0.3, alpha: 1))
     frameMat.roughness = .init(floatLiteral: 0.3)
@@ -280,7 +245,6 @@ func setupVRChatHomeScene(in arView: ARView) {
     frame.position = [3.5, 0.60, -4.63]
     anchor.addChild(frame)
 
-    // スポットライト（暖炉の上に暖色光）
     var fireLightComp = PointLightComponent()
     fireLightComp.color      = UIColor(red: 1.0, green: 0.55, blue: 0.2, alpha: 1)
     fireLightComp.intensity  = 500
@@ -290,7 +254,6 @@ func setupVRChatHomeScene(in arView: ARView) {
     fireLight.position = [3.5, -0.4, -4.1]
     anchor.addChild(fireLight)
 
-    // 環境ライト（天井から白色）
     var ceilLightComp = PointLightComponent()
     ceilLightComp.color      = UIColor(red: 1.0, green: 0.95, blue: 0.85, alpha: 1)
     ceilLightComp.intensity  = 300
@@ -300,7 +263,6 @@ func setupVRChatHomeScene(in arView: ARView) {
     ceilLight.position = [0, 1.5, -1.0]
     anchor.addChild(ceilLight)
 
-    // 窓の外の夜空（星）
     for pos: SIMD3<Float> in [[-1.2, 0.8, -12], [0.3, 1.3, -14], [1.5, 0.6, -11],
                                [-0.5, 0.3, -13], [0.9, 1.5, -12], [-1.8, 1.4, -10],
                                [0.0, 0.1, -11],  [1.3, 1.0, -13]] {
@@ -308,7 +270,6 @@ func setupVRChatHomeScene(in arView: ARView) {
         s.position = pos
         anchor.addChild(s)
     }
-    // 月（大きな白球）
     var moonMat = PhysicallyBasedMaterial()
     moonMat.baseColor        = .init(tint: UIColor(red: 0.96, green: 0.96, blue: 0.88, alpha: 1))
     moonMat.emissiveColor    = .init(color: UIColor(red: 0.9, green: 0.9, blue: 0.8, alpha: 1))
@@ -319,4 +280,11 @@ func setupVRChatHomeScene(in arView: ARView) {
     anchor.addChild(moon)
 
     arView.scene.addAnchor(anchor)
+}
+
+/// バーチャルハウスの表示/非表示（パススルー切替用）
+func setHouseVisibility(in arView: ARView, visible: Bool) {
+    if let house = arView.scene.findEntity(named: "houseAnchor") {
+        house.scale = visible ? SIMD3<Float>(1, 1, 1) : SIMD3<Float>.zero
+    }
 }
