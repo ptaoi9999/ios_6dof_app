@@ -23,7 +23,7 @@
 ## 4. ToDoリスト
 - [ ] フェーズ1: 3DoFで部屋を見られる最小限のiOSアプリの構築
   - [x] プロジェクト構造の設計と作成（Linux環境で管理可能なxcodeproj/SwiftPM構成）
-  - [ ] SwiftUIとRealityKit (RealityView) を使った3DoFカメラと簡易3D空間の実装
+  - [x] SwiftUIとRealityKit (ARView) を使った3DoFステレオカメラと簡易3D空間の実装（2レンズVR対応）
   - [x] GitHub Actionsによる署名なしIPAビルドワークフローの構築
 - [ ] フェーズ2: 6DoFでの歩き回り（ARKit統合）
 - [ ] フェーズ3: Vision Frameworkによるハンドトラッキングの統合
