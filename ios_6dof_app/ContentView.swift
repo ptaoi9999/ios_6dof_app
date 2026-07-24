@@ -1,6 +1,5 @@
 import SwiftUI
 import RealityKit
-import CoreMotion
 import ARKit
 
 // 左右の目を識別する列挙型
@@ -9,59 +8,52 @@ enum Eye {
     case right
 }
 
-// デバイスの姿勢を管理するクラス
-class VRMotionManager: ObservableObject {
-    private let motionManager = CMMotionManager()
+// ARKitを利用して6DoF（位置＋回転）トラッキングを管理するクラス
+class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
+    let session = ARSession()
     
-    // カメラの回転情報を保持するクォータニオン
-    @Published var orientation: simd_quatf = simd_quaternion(1, 0, 0, 0)
+    // カメラの最新のTransform（4x4行列）
+    @Published var cameraTransform: simd_float4x4 = matrix_identity_float4x4
     
-    init() {
-        startTracking()
+    override init() {
+        super.init()
+        session.delegate = self
+        startSession()
     }
     
-    func startTracking() {
-        guard motionManager.isDeviceMotionAvailable else {
-            print("Device Motion is not available")
+    func startSession() {
+        // デバイスがARKitに対応しているか確認
+        guard ARWorldTrackingConfiguration.isSupported else {
+            print("ARKit is not supported on this device")
             return
         }
         
-        motionManager.deviceMotionUpdateInterval = 1.0 / 60.0 // 60 FPS
-        motionManager.startDeviceMotionUpdates(using: .xArbitraryCorrectedZVertical, to: .main) { [weak self] motion, error in
-            guard let self = self, let motion = motion else { return }
-            
-            // CoreMotionの姿勢（態度）からクォータニオンを取得
-            let attitude = motion.attitude
-            let q = attitude.quaternion
-            
-            // RealityKitの座標系（右手系、Y上、Z手前）に変換
-            // スマホが横向き（Landscape Left または Landscape Right）になるため、軸の調整が必要です。
-            // ここでは標準的なLandscape Leftを想定して回転を変換します。
-            let deviceOrientation = simd_quaternion(Float(q.x), Float(q.y), Float(q.z), Float(q.w))
-            
-            // VRゴーグル装着状態（横画面）に合わせた補正
-            // iOSの縦持ち基準からLandscapeLeftへの変換
-            let rotationCompensation = simd_quaternion(Float.pi / 2, simd_make_float3(1, 0, 0)) // ピッチを90度起こす
-            let rotationYComp = simd_quaternion(-Float.pi / 2, simd_make_float3(0, 1, 0))     // ヨーの調整
-            
-            DispatchQueue.main.async {
-                self.orientation = rotationYComp * rotationCompensation * deviceOrientation
-            }
-        }
+        let configuration = ARWorldTrackingConfiguration()
+        // 重力と方角を基準にしてアライメントを取る
+        configuration.worldAlignment = .gravityAndHeading
+        
+        // 不要な処理を無効にしてビルド・実行を高速化
+        configuration.planeDetection = []
+        
+        session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
     }
     
-    deinit {
-        motionManager.stopDeviceMotionUpdates()
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        // 端末の向き（横画面）に対応したARKitカメラのTransformを反映
+        DispatchQueue.main.async {
+            self.cameraTransform = frame.camera.transform
+        }
     }
 }
 
 struct ContentView: View {
-    @StateObject private var motionManager = VRMotionManager()
+    // アプリ全体で共有するARKitトラッカー
+    @StateObject private var tracker = ARTracker()
     
     var body: some View {
         HStack(spacing: 0) {
             // 左目用ビューポート
-            VRViewContainer(eye: .left, motionManager: motionManager)
+            VRViewContainer(eye: .left, tracker: tracker)
             
             // 中央の区切り線（ゴーグル内の仕切りに合わせる）
             Divider()
@@ -69,7 +61,7 @@ struct ContentView: View {
                 .frame(width: 2)
             
             // 右目用ビューポート
-            VRViewContainer(eye: .right, motionManager: motionManager)
+            VRViewContainer(eye: .right, tracker: tracker)
         }
         .edgesIgnoringSafeArea(.all)
         .background(Color.black)
@@ -78,10 +70,10 @@ struct ContentView: View {
 
 struct VRViewContainer: UIViewRepresentable {
     let eye: Eye
-    @ObservedObject var motionManager: VRMotionManager
+    @ObservedObject var tracker: ARTracker
     
     func makeUIView(context: Context) -> ARView {
-        // 非ARモードでARViewを初期化
+        // 非ARモードでARViewを初期化（リアカメラ映像は表示せず、VR空間のCGのみを描画）
         let arView = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
         
         // 1. シーンの構築 (左右それぞれ同じ空間を再現する)
@@ -89,13 +81,7 @@ struct VRViewContainer: UIViewRepresentable {
         
         // 2. カスタムカメラの設定
         let cameraEntity = PerspectiveCamera()
-        cameraEntity.camera.fieldOfViewInDegrees = 80 // VRゴーグル向けの広視野角
-        
-        // 瞳孔間距離 (IPD) の設定 (約 6.4cm -> 左右に 3.2cm ずつオフセット)
-        let ipdOffset: Float = (eye == .left) ? -0.032 : 0.032
-        cameraEntity.position = [ipdOffset, 0, 0]
-        
-        // カメラに一意の名前を付与して後から参照できるようにする
+        cameraEntity.camera.fieldOfViewInDegrees = 85 // VRゴーグル向けの広視野角
         cameraEntity.name = "vrCamera"
         
         // カメラアンカーを作成して追加
@@ -107,13 +93,23 @@ struct VRViewContainer: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: ARView, context: Context) {
-        // デバイスの姿勢をカメラの回転に適用
+        // ARKitが算出した最新の6DoF位置・回転をカメラEntityに適用
         if let camera = uiView.scene.findEntity(named: "vrCamera") {
-            camera.orientation = motionManager.orientation
+            let baseTransform = tracker.cameraTransform
+            
+            // 左右の目のオフセット（瞳孔間距離 IPD: 約 6.4cm -> 左右に 3.2cm ずつずらす）
+            let ipdOffset: Float = (eye == .left) ? -0.032 : 0.032
+            
+            // ローカル座標のX軸方向に目の幅をずらすための平行移動行列
+            var eyeTranslation = matrix_identity_float4x4
+            eyeTranslation.columns.3 = simd_make_float4(ipdOffset, 0, 0, 1)
+            
+            // 端末位置・回転（世界座標）に対して、目の幅のオフセットをローカル座標系で適用
+            camera.transform.matrix = baseTransform * eyeTranslation
         }
     }
     
-    // VR空間内の簡易オブジェクト配置
+    // VR空間内の簡易オブジェクト配置（家のような空間を想定）
     private func setupVRScene(arView: ARView) {
         let anchor = AnchorEntity(world: .zero)
         
@@ -137,8 +133,8 @@ struct VRViewContainer: UIViewRepresentable {
         rightBox.position = [2, 0, 0]
         anchor.addChild(rightBox)
         
-        // 床 (Y = -1.2m): グレーの平面（グリッド状の目安として立方体を薄く平らにしたもの）
-        let floorMesh = MeshResource.generateBox(width: 10, height: 0.1, depth: 10)
+        // 床 (Y = -1.2m): グレーの平面
+        let floorMesh = MeshResource.generateBox(width: 20, height: 0.1, depth: 20)
         let floorMaterial = SimpleMaterial(color: .darkGray, isMetallic: false)
         let floorEntity = ModelEntity(mesh: floorMesh, materials: [floorMaterial])
         floorEntity.position = [0, -1.2, 0]
