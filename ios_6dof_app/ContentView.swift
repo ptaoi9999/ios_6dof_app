@@ -16,13 +16,16 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     // カメラの最新のTransform
     @Published var cameraTransform: simd_float4x4 = matrix_identity_float4x4
     
-    // 検出された手の3D世界座標
+    // 代表的な手の3D世界座標 (掴み判定などに使用)
     @Published var handPosition: simd_float3? = nil
+    // 検出されたすべての手の関節の3D世界座標（辞書）
+    @Published var handJoints: [String: simd_float3]? = nil
+    
     // 現在ピンチ（つまむ）されているか
     @Published var isPinching: Bool = false
-    
     // 現在手をグー（Fist）にしているか
     @Published var isFist: Bool = false
+    
     // LaunchPadメニューの表示フラグ
     @Published var isMenuVisible: Bool = false
     // メニューを表示固定した際の世界座標Transform
@@ -77,54 +80,79 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             do {
                 try handler.perform([handPoseRequest])
                 if let observation = handPoseRequest.results?.first {
-                    let indexPoints = try observation.recognizedPoints(.indexFinger)
-                    let middlePoints = try observation.recognizedPoints(.middleFinger)
-                    let ringPoints = try observation.recognizedPoints(.ringFinger)
-                    let littlePoints = try observation.recognizedPoints(.littleFinger)
-                    let thumbPoints = try observation.recognizedPoints(.thumb)
-                    let wristPoints = try observation.recognizedPoints(.all)
+                    // 各指の関節を取得
+                    var jointsDict: [String: simd_float3] = [:]
+                    let allJointGroups: [VNDetectHumanHandPoseRequest.JointsGroupName] = [
+                        .thumb, .indexFinger, .middleFinger, .ringFinger, .littleFinger
+                    ]
                     
-                    if let indexTip = indexPoints[.indexTip], indexTip.confidence > 0.5,
-                       let indexMCP = indexPoints[.indexMCP], indexMCP.confidence > 0.5,
-                       let middleTip = middlePoints[.middleTip], middleTip.confidence > 0.5,
-                       let middleMCP = middlePoints[.middleMCP], middleMCP.confidence > 0.5,
-                       let ringTip = ringPoints[.ringTip], ringTip.confidence > 0.5,
-                       let ringMCP = ringPoints[.ringMCP], ringMCP.confidence > 0.5,
-                       let littleTip = littlePoints[.littleTip], littleTip.confidence > 0.5,
-                       let littleMCP = littlePoints[.littleMCP], littleMCP.confidence > 0.5,
-                       let thumbTip = thumbPoints[.thumbTip], thumbTip.confidence > 0.5,
-                       let wrist = wristPoints[.wrist], wrist.confidence > 0.5 {
-                        
-                        let tipX = Float(indexTip.location.x)
-                        let tipY = Float(indexTip.location.y)
-                        
-                        // カメラ前方 40cm に手の球体を投影
+                    for group in allJointGroups {
+                        if let recognizedPoints = try? observation.recognizedPoints(group) {
+                            for (jointName, point) in recognizedPoints where point.confidence > 0.3 {
+                                let tipX = Float(point.location.x)
+                                let tipY = Float(point.location.y)
+                                let localX = (tipX - 0.5) * 0.4
+                                let localY = (tipY - 0.5) * 0.4
+                                let localPos = simd_make_float4(localX, localY, -0.4, 1.0)
+                                let worldPos = transform * localPos
+                                jointsDict[jointName.rawValue.rawValue] = simd_make_float3(worldPos.x, worldPos.y, worldPos.z)
+                            }
+                        }
+                    }
+                    
+                    // 手首を取得
+                    if let allPoints = try? observation.recognizedPoints(.all),
+                       let wristPoint = allPoints[.wrist], wristPoint.confidence > 0.3 {
+                        let tipX = Float(wristPoint.location.x)
+                        let tipY = Float(wristPoint.location.y)
                         let localX = (tipX - 0.5) * 0.4
                         let localY = (tipY - 0.5) * 0.4
                         let localPos = simd_make_float4(localX, localY, -0.4, 1.0)
                         let worldPos = transform * localPos
+                        jointsDict["wrist"] = simd_make_float3(worldPos.x, worldPos.y, worldPos.z)
+                    }
+                    
+                    // 必要なキーのポイントをキャストして取得
+                    let indexTipKey = VNDetectHumanHandPoseRequest.JointName.indexTip.rawValue.rawValue
+                    let indexMCPKey = VNDetectHumanHandPoseRequest.JointName.indexMCP.rawValue.rawValue
+                    let middleTipKey = VNDetectHumanHandPoseRequest.JointName.middleTip.rawValue.rawValue
+                    let middleMCPKey = VNDetectHumanHandPoseRequest.JointName.middleMCP.rawValue.rawValue
+                    let ringTipKey = VNDetectHumanHandPoseRequest.JointName.ringTip.rawValue.rawValue
+                    let ringMCPKey = VNDetectHumanHandPoseRequest.JointName.ringMCP.rawValue.rawValue
+                    let littleTipKey = VNDetectHumanHandPoseRequest.JointName.littleTip.rawValue.rawValue
+                    let littleMCPKey = VNDetectHumanHandPoseRequest.JointName.littleMCP.rawValue.rawValue
+                    let thumbTipKey = VNDetectHumanHandPoseRequest.JointName.thumbTip.rawValue.rawValue
+                    
+                    if let indexTipPos = jointsDict[indexTipKey],
+                       let indexMCPPos = jointsDict[indexMCPKey],
+                       let middleTipPos = jointsDict[middleTipKey],
+                       let middleMCPPos = jointsDict[middleMCPKey],
+                       let ringTipPos = jointsDict[ringTipKey],
+                       let ringMCPPos = jointsDict[ringMCPKey],
+                       let littleTipPos = jointsDict[littleTipKey],
+                       let littleMCPPos = jointsDict[littleMCPKey],
+                       let thumbTipPos = jointsDict[thumbTipKey],
+                       let wristPos = jointsDict["wrist"] {
                         
-                        // ピンチ判定 (親指と人差し指の距離)
-                        let distance = simd_distance(
-                            simd_make_float2(Float(indexTip.location.x), Float(indexTip.location.y)),
-                            simd_make_float2(Float(thumbTip.location.x), Float(thumbTip.location.y))
-                        )
-                        let pinchDetected = distance < 0.08
+                        // 代表値（人差し指の先端）
+                        let parsedHandPos = indexTipPos
                         
-                        // グー（Fist）判定
-                        let wristPos = simd_make_float2(Float(wrist.location.x), Float(wrist.location.y))
+                        // 1. ピンチ判定 (親指と人差し指の距離)
+                        let distance = simd_distance(indexTipPos, thumbTipPos)
+                        let pinchDetected = distance < 0.05 // 3D空間のメートル基準 (5cm)
                         
-                        let indexTipDist = simd_distance(simd_make_float2(Float(indexTip.location.x), Float(indexTip.location.y)), wristPos)
-                        let indexMCPDist = simd_distance(simd_make_float2(Float(indexMCP.location.x), Float(indexMCP.location.y)), wristPos)
+                        // 2. グー（Fist）判定: 4本の指先が手首に対して付け根(MCP)より近くなっているか
+                        let indexTipDist = simd_distance(indexTipPos, wristPos)
+                        let indexMCPDist = simd_distance(indexMCPPos, wristPos)
                         
-                        let middleTipDist = simd_distance(simd_make_float2(Float(middleTip.location.x), Float(middleTip.location.y)), wristPos)
-                        let middleMCPDist = simd_distance(simd_make_float2(Float(middleMCP.location.x), Float(middleMCP.location.y)), wristPos)
+                        let middleTipDist = simd_distance(middleTipPos, wristPos)
+                        let middleMCPDist = simd_distance(middleMCPPos, wristPos)
                         
-                        let ringTipDist = simd_distance(simd_make_float2(Float(ringTip.location.x), Float(ringTip.location.y)), wristPos)
-                        let ringMCPDist = simd_distance(simd_make_float2(Float(ringMCP.location.x), Float(ringMCP.location.y)), wristPos)
+                        let ringTipDist = simd_distance(ringTipPos, wristPos)
+                        let ringMCPDist = simd_distance(ringMCPPos, wristPos)
                         
-                        let littleTipDist = simd_distance(simd_make_float2(Float(littleTip.location.x), Float(littleTip.location.y)), wristPos)
-                        let littleMCPDist = simd_distance(simd_make_float2(Float(littleMCP.location.x), Float(littleMCP.location.y)), wristPos)
+                        let littleTipDist = simd_distance(littleTipPos, wristPos)
+                        let littleMCPDist = simd_distance(littleMCPPos, wristPos)
                         
                         let fistDetected = (indexTipDist < indexMCPDist) &&
                                            (middleTipDist < middleMCPDist) &&
@@ -132,8 +160,8 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                                            (littleTipDist < littleMCPDist)
                         
                         DispatchQueue.main.async {
-                            let parsedHandPos = simd_make_float3(worldPos.x, worldPos.y, worldPos.z)
                             self.handPosition = parsedHandPos
+                            self.handJoints = jointsDict
                             self.isPinching = pinchDetected
                             self.isFist = fistDetected
                             
@@ -166,12 +194,12 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                             } else {
                                 if self.isGrabbingBall {
                                     self.isGrabbingBall = false
-                                    // 離した瞬間の速度を計算してボールに与える（投げる動作）
+                                    // 離した瞬間の速度を計算してボールに与える
                                     if self.handPosHistory.count >= 2 {
                                         let first = self.handPosHistory.first!
                                         let last = self.handPosHistory.last!
                                         let count = Float(self.handPosHistory.count)
-                                        self.ballVelocity = (last - first) / (count * (dt * 3.0)) // 3フレーム周期のため補正
+                                        self.ballVelocity = (last - first) / (count * (dt * 3.0))
                                     }
                                     self.handPosHistory.removeAll()
                                 }
@@ -208,13 +236,11 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             if nextPos.y < floorLimit {
                 nextPos.y = floorLimit
                 self.ballVelocity.y = -self.ballVelocity.y * restitution
-                // 床との摩擦
                 self.ballVelocity.x *= 0.92
                 self.ballVelocity.z *= 0.92
             }
             
             // テーブルとの衝突判定 (上面 Y = -0.6m, ボールの半径 0.08m -> Y = -0.52m)
-            // テーブル範囲: X ∈ [-0.8, 0.8], Z ∈ [-2.5, -1.5]
             let tableTopLimit: Float = -0.6 + 0.08
             if nextPos.y < tableTopLimit && nextPos.y > tableTopLimit - 0.15 {
                 if nextPos.x >= -0.8 && nextPos.x <= 0.8 &&
@@ -237,6 +263,7 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     private func clearHandState() {
         DispatchQueue.main.async {
             self.handPosition = nil
+            self.handJoints = nil
             self.isPinching = false
             self.isFist = false
             self.wasFist = false
@@ -274,7 +301,7 @@ struct VRViewContainer: UIViewRepresentable {
     @ObservedObject var tracker: ARTracker
     
     func makeUIView(context: Context) -> ARView {
-        // パススルー機能を削除し、純粋な非AR（VRモード）に戻す
+        // パススルーなし、純粋な非AR（VRモード）
         let arView = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
         arView.session = tracker.session
         
@@ -290,15 +317,32 @@ struct VRViewContainer: UIViewRepresentable {
         cameraAnchor.addChild(cameraEntity)
         arView.scene.addAnchor(cameraAnchor)
         
-        // 3. 手のEntity（球体）を設定
-        let handMesh = MeshResource.generateSphere(radius: 0.03)
-        let handMaterial = SimpleMaterial(color: .white, isMetallic: false)
-        let handEntity = ModelEntity(mesh: handMesh, materials: [handMaterial])
-        handEntity.name = "vrHand"
-        handEntity.scale = .zero
-        
+        // 3. 手の骨格（複数ボールの集合）アンカーの設定
         let handAnchor = AnchorEntity(world: .zero)
-        handAnchor.addChild(handEntity)
+        handAnchor.name = "handAnchor"
+        
+        // トラッキングする全21関節のキー名リスト
+        let jointsList = [
+            "wrist",
+            "VNHHPRK_TBT", "VNHHPRK_TIP", "VNHHPRK_TMP", "VNHHPRK_TMC",
+            "VNHHPRK_ITX", "VNHHPRK_IIP", "VNHHPRK_IPP", "VNHHPRK_ICP",
+            "VNHHPRK_MTX", "VNHHPRK_MIP", "VNHHPRK_MPP", "VNHHPRK_MCP",
+            "VNHHPRK_RTX", "VNHHPRK_RIP", "VNHHPRK_RPP", "VNHHPRK_RCP",
+            "VNHHPRK_PTX", "VNHHPRK_PIP", "VNHHPRK_PPP", "VNHHPRK_PCP"
+        ]
+        
+        for jointName in jointsList {
+            let isKeyJoint = jointName.contains("TX") || jointName.contains("TBT") || jointName == "wrist"
+            let radius: Float = isKeyJoint ? 0.012 : 0.007
+            let color: UIColor = isKeyJoint ? .white : UIColor(white: 0.8, alpha: 1.0)
+            
+            let mesh = MeshResource.generateSphere(radius: radius)
+            let material = SimpleMaterial(color: color, isMetallic: false)
+            let entity = ModelEntity(mesh: mesh, materials: [material])
+            entity.name = "joint_\(jointName)"
+            entity.scale = .zero // 初期状態は非表示
+            handAnchor.addChild(entity)
+        }
         arView.scene.addAnchor(handAnchor)
         
         // 4. つまんで動かせるボールEntityの追加
@@ -335,25 +379,38 @@ struct VRViewContainer: UIViewRepresentable {
             camera.transform.matrix = baseTransform * eyeTranslation
         }
         
-        // 手の3D球体の位置とインタラクションを更新
-        if let hand = uiView.scene.findEntity(named: "vrHand") {
-            if let handPos = tracker.handPosition {
-                hand.position = handPos
-                hand.scale = [1, 1, 1]
-                
-                // 掴み判定またはピンチ状態で色を変更
-                let color: UIColor = tracker.isGrabbingBall ? .systemGreen : (tracker.isPinching ? .systemYellow : .white)
-                let material = SimpleMaterial(color: color, isMetallic: tracker.isPinching)
-                if var modelComp = hand.components[ModelComponent.self] as? ModelComponent {
-                    modelComp.materials = [material]
-                    hand.components.set(modelComp)
+        // 手の複数球体（骨格）の位置と色を更新
+        if let handAnchor = uiView.scene.findEntity(named: "handAnchor") {
+            if let joints = tracker.handJoints {
+                for child in handAnchor.children {
+                    let prefix = "joint_"
+                    if child.name.hasPrefix(prefix) {
+                        let jointKey = String(child.name.dropFirst(prefix.count))
+                        if let pos = joints[jointKey] {
+                            child.position = pos
+                            child.scale = [1, 1, 1]
+                            
+                            // 掴みまたはピンチ状態に応じて関節球体の色を変更
+                            if let modelEntity = child as? ModelEntity {
+                                let isKeyJoint = jointKey.contains("TX") || jointKey.contains("TBT") || jointKey == "wrist"
+                                let baseColor: UIColor = isKeyJoint ? .white : UIColor(white: 0.8, alpha: 1.0)
+                                let color: UIColor = tracker.isGrabbingBall ? .systemGreen : (tracker.isPinching ? .systemYellow : baseColor)
+                                
+                                modelEntity.model?.materials = [SimpleMaterial(color: color, isMetallic: tracker.isPinching)]
+                            }
+                        } else {
+                            child.scale = .zero
+                        }
+                    }
                 }
             } else {
-                hand.scale = .zero
+                for child in handAnchor.children {
+                    child.scale = .zero
+                }
             }
         }
         
-        // ボールの3D球体の位置更新 (trackerが計算した同期物理位置をそのまま代入)
+        // ボールの3D球体の位置更新
         if let ball = uiView.scene.findEntity(named: "vrBall") {
             ball.position = tracker.ballPosition
         }
@@ -371,23 +428,19 @@ struct VRViewContainer: UIViewRepresentable {
     
     // LaunchPadメニュー (プロトタイプ) の構築
     private func createLaunchPadEntity() -> ModelEntity {
-        // メインパネル
         let menuMaterial = SimpleMaterial(color: UIColor(red: 0.05, green: 0.1, blue: 0.2, alpha: 0.75), isMetallic: true)
         let menuBase = ModelEntity(mesh: MeshResource.generateBox(width: 0.4, height: 0.28, depth: 0.01), materials: [menuMaterial])
         
-        // タイトルバー (LaunchPadヘッダー)
         let titleMat = SimpleMaterial(color: UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.9), isMetallic: true)
         let titleBar = ModelEntity(mesh: MeshResource.generateBox(width: 0.36, height: 0.04, depth: 0.005), materials: [titleMat])
         titleBar.position = [0, 0.1, 0.008]
         menuBase.addChild(titleBar)
         
-        // ボタンA (ダミーボタン1)
         let btnMatA = SimpleMaterial(color: .systemBlue, isMetallic: false)
         let btnA = ModelEntity(mesh: MeshResource.generateBox(width: 0.15, height: 0.06, depth: 0.015), materials: [btnMatA])
         btnA.position = [-0.09, -0.02, 0.01]
         menuBase.addChild(btnA)
         
-        // ボタンB (ダミーボタン2)
         let btnMatB = SimpleMaterial(color: .systemOrange, isMetallic: false)
         let btnB = ModelEntity(mesh: MeshResource.generateBox(width: 0.15, height: 0.06, depth: 0.015), materials: [btnMatB])
         btnB.position = [0.09, -0.02, 0.01]
@@ -416,7 +469,7 @@ struct VRViewContainer: UIViewRepresentable {
         ceiling.position = [0, 1.8, 0]
         anchor.addChild(ceiling)
         
-        // 奥の壁 (大窓エリアを残すため左右分割)
+        // 奥の壁
         let backWallLeft = ModelEntity(mesh: MeshResource.generateBox(width: 3.5, height: 3, depth: 0.1), materials: [wallMaterial])
         backWallLeft.position = [-3.25, 0.3, -5]
         anchor.addChild(backWallLeft)
