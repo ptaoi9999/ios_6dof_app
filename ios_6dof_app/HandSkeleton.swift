@@ -2,7 +2,7 @@ import RealityKit
 import UIKit
 import simd
 
-/// 手の骨格ジョイント名リスト（VNHumanHandPoseObservationのrawValueキーに対応）
+/// 手の骨格ジョイント名リスト
 let kHandJointNames: [String] = [
     "wrist",
     // 親指
@@ -17,155 +17,170 @@ let kHandJointNames: [String] = [
     "VNHHPRK_PCP", "VNHHPRK_PPP", "VNHHPRK_PIP", "VNHHPRK_PTX"
 ]
 
-/// ハンドスケルトンのボーン接続（各ペアは親→子の方向）
-let kHandBones: [(String, String)] = [
-    // 手首から各指のMCP
-    ("wrist", "VNHHPRK_ICP"),
-    ("wrist", "VNHHPRK_MCP"),
-    ("wrist", "VNHHPRK_RCP"),
-    ("wrist", "VNHHPRK_PCP"),
-    ("wrist", "VNHHPRK_TBT"),
-    // 人差し指
-    ("VNHHPRK_ICP", "VNHHPRK_IPP"),
-    ("VNHHPRK_IPP", "VNHHPRK_IIP"),
-    ("VNHHPRK_IIP", "VNHHPRK_ITX"),
-    // 中指
-    ("VNHHPRK_MCP", "VNHHPRK_MPP"),
-    ("VNHHPRK_MPP", "VNHHPRK_MIP"),
-    ("VNHHPRK_MIP", "VNHHPRK_MTX"),
-    // 薬指
-    ("VNHHPRK_RCP", "VNHHPRK_RPP"),
-    ("VNHHPRK_RPP", "VNHHPRK_RIP"),
-    ("VNHHPRK_RIP", "VNHHPRK_RTX"),
-    // 小指
-    ("VNHHPRK_PCP", "VNHHPRK_PPP"),
-    ("VNHHPRK_PPP", "VNHHPRK_PIP"),
-    ("VNHHPRK_PIP", "VNHHPRK_PTX"),
+/// 指の節（Segment）および手のひらを埋めるボーン接続（親, 子, 太さ）のリスト
+struct HandSegmentDef {
+    let fromKey: String
+    let toKey: String
+    let thickness: Float // 太さ（メートル単位）
+}
+
+let kHandSegmentDefs: [HandSegmentDef] = [
+    // 手のひら / 手の甲の肉付け
+    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_TBT", thickness: 0.022),
+    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_ICP", thickness: 0.024),
+    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_MCP", thickness: 0.025),
+    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_RCP", thickness: 0.023),
+    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_PCP", thickness: 0.021),
+    
+    // 手のひら横方向の接続（掌を一枚の肉付けに見せる）
+    HandSegmentDef(fromKey: "VNHHPRK_ICP", toKey: "VNHHPRK_MCP", thickness: 0.022),
+    HandSegmentDef(fromKey: "VNHHPRK_MCP", toKey: "VNHHPRK_RCP", thickness: 0.022),
+    HandSegmentDef(fromKey: "VNHHPRK_RCP", toKey: "VNHHPRK_PCP", thickness: 0.020),
+    HandSegmentDef(fromKey: "VNHHPRK_TBT", toKey: "VNHHPRK_ICP", thickness: 0.020),
+
     // 親指
-    ("VNHHPRK_TBT", "VNHHPRK_TMP"),
-    ("VNHHPRK_TMP", "VNHHPRK_TIP"),
-    ("VNHHPRK_TIP", "VNHHPRK_TTX")
+    HandSegmentDef(fromKey: "VNHHPRK_TBT", toKey: "VNHHPRK_TMP", thickness: 0.020),
+    HandSegmentDef(fromKey: "VNHHPRK_TMP", toKey: "VNHHPRK_TIP", thickness: 0.018),
+    HandSegmentDef(fromKey: "VNHHPRK_TIP", toKey: "VNHHPRK_TTX", thickness: 0.016),
+
+    // 人差し指
+    HandSegmentDef(fromKey: "VNHHPRK_ICP", toKey: "VNHHPRK_IPP", thickness: 0.019),
+    HandSegmentDef(fromKey: "VNHHPRK_IPP", toKey: "VNHHPRK_IIP", thickness: 0.017),
+    HandSegmentDef(fromKey: "VNHHPRK_IIP", toKey: "VNHHPRK_ITX", thickness: 0.015),
+
+    // 中指
+    HandSegmentDef(fromKey: "VNHHPRK_MCP", toKey: "VNHHPRK_MPP", thickness: 0.020),
+    HandSegmentDef(fromKey: "VNHHPRK_MPP", toKey: "VNHHPRK_MIP", thickness: 0.018),
+    HandSegmentDef(fromKey: "VNHHPRK_MIP", toKey: "VNHHPRK_MTX", thickness: 0.015),
+
+    // 薬指
+    HandSegmentDef(fromKey: "VNHHPRK_RCP", toKey: "VNHHPRK_RPP", thickness: 0.019),
+    HandSegmentDef(fromKey: "VNHHPRK_RPP", toKey: "VNHHPRK_RIP", thickness: 0.017),
+    HandSegmentDef(fromKey: "VNHHPRK_RIP", toKey: "VNHHPRK_RTX", thickness: 0.014),
+
+    // 小指
+    HandSegmentDef(fromKey: "VNHHPRK_PCP", toKey: "VNHHPRK_PPP", thickness: 0.017),
+    HandSegmentDef(fromKey: "VNHHPRK_PPP", toKey: "VNHHPRK_PIP", thickness: 0.015),
+    HandSegmentDef(fromKey: "VNHHPRK_PIP", toKey: "VNHHPRK_PTX", thickness: 0.013)
 ]
 
-/// ハンドスケルトンのRealityKitエンティティ（ジョイント球体）を生成する
+/// 肌色のリアルなマテリアルを生成する
+func createSkinMaterial(tint: UIColor) -> PhysicallyBasedMaterial {
+    var mat = PhysicallyBasedMaterial()
+    mat.baseColor = .init(tint: tint)
+    mat.roughness = .init(floatLiteral: 0.45) // 人間の皮膚に近いしっとりとした光沢
+    mat.metallic  = .init(floatLiteral: 0.0)
+    return mat
+}
+
+/// リアルな手のエンティティ（関節球体＋厚みのある指・手掌セグメント）を生成
 func makeHandSkeletonAnchor() -> AnchorEntity {
     let anchor = AnchorEntity(world: .zero)
     anchor.name = "handAnchor"
 
+    let skinMat = createSkinMaterial(tint: UIColor(red: 0.88, green: 0.74, blue: 0.65, alpha: 1.0))
+
+    // 1. 各関節の球体（関節の滑らかな膨らみ）
     for name in kHandJointNames {
-        let isTip  = name.hasSuffix("TX") || name.hasSuffix("TTX")
-        let isMCP  = name.hasSuffix("CP") || name == "wrist"
-        let radius: Float = isTip ? 0.011 : (isMCP ? 0.010 : 0.008)
+        let isTip = name.hasSuffix("TX") || name.hasSuffix("TTX")
+        let isWrist = name == "wrist"
+        
+        // 関節ごとの適切な半径
+        let radius: Float = isWrist ? 0.018 : (isTip ? 0.011 : 0.012)
 
-        // 肌色のPBRライクなマテリアル
-        var mat = PhysicallyBasedMaterial()
-        mat.baseColor = .init(tint: UIColor(red: 0.85, green: 0.72, blue: 0.62, alpha: 1.0))
-        mat.roughness = .init(floatLiteral: 0.7)
-        mat.metallic  = .init(floatLiteral: 0.0)
-
-        let mesh   = MeshResource.generateSphere(radius: radius)
-        let entity = ModelEntity(mesh: mesh, materials: [mat])
-        entity.name  = "joint_\(name)"
-        entity.scale = .zero
+        let mesh = MeshResource.generateSphere(radius: radius)
+        let entity = ModelEntity(mesh: mesh, materials: [skinMat])
+        entity.name = "joint_\(name)"
+        entity.scale = SIMD3<Float>.zero
         anchor.addChild(entity)
     }
 
-    // ボーン（細い円柱）を追加
-    for (_, _) in kHandBones {
-        var boneMat = PhysicallyBasedMaterial()
-        boneMat.baseColor = .init(tint: UIColor(red: 0.80, green: 0.67, blue: 0.58, alpha: 1.0))
-        boneMat.roughness = .init(floatLiteral: 0.8)
-        boneMat.metallic  = .init(floatLiteral: 0.0)
-
-        // プレースホルダー（位置は updateHandSkeleton で毎フレーム更新）
-        let boneMesh   = MeshResource.generateBox(width: 0.005, height: 0.001, depth: 0.005)
-        let boneEntity = ModelEntity(mesh: boneMesh, materials: [boneMat])
-        boneEntity.name  = "bone_placeholder"
-        boneEntity.scale = SIMD3<Float>.zero
-        anchor.addChild(boneEntity)
+    // 2. 指の節・手のひらの肉付けセグメント（標準サイズ 1m x 1m x 1m のBoxで初期化し、scaleで太さと長さを制御）
+    let baseMesh = MeshResource.generateBox(width: 1.0, height: 1.0, depth: 1.0)
+    for (idx, _) in kHandSegmentDefs.enumerated() {
+        let entity = ModelEntity(mesh: baseMesh, materials: [skinMat])
+        entity.name = "segment_\(idx)"
+        entity.scale = SIMD3<Float>.zero
+        anchor.addChild(entity)
     }
 
     return anchor
 }
 
-/// 毎フレーム、手の骨格エンティティを joints辞書に基づいて更新する
+/// 毎フレーム、手のエンティティの位置・方向・厚みをリアルタイム更新
 func updateHandSkeleton(
     handAnchor: Entity,
     joints: [String: simd_float3]?,
     isPinching: Bool,
     isGrabbing: Bool
 ) {
-    // 状態によるカラー
-    let pinchTint  = UIColor(red: 1.0, green: 0.9, blue: 0.3, alpha: 1.0)
-    let grabTint   = UIColor(red: 0.4, green: 0.9, blue: 0.5, alpha: 1.0)
-    let skinTint   = UIColor(red: 0.85, green: 0.72, blue: 0.62, alpha: 1.0)
-    let activeTint = isGrabbing ? grabTint : (isPinching ? pinchTint : skinTint)
-
-    // ジョイント球体の更新
-    var boneEntities: [ModelEntity] = []
-
-    for child in handAnchor.children {
-        guard child.name.hasPrefix("joint_") else { continue }
-        let key = String(child.name.dropFirst("joint_".count))
-
-        if let pos = joints?[key] {
-            child.position = pos
-            child.scale    = [1, 1, 1]
-            if let me = child as? ModelEntity {
-                var mat = PhysicallyBasedMaterial()
-                mat.baseColor = .init(tint: activeTint)
-                mat.roughness = .init(floatLiteral: 0.7)
-                mat.metallic  = .init(floatLiteral: 0.0)
-                me.model?.materials = [mat]
-            }
-        } else {
-            child.scale = .zero
-        }
-    }
-
-    // ボーン（円柱）の更新
-    for child in handAnchor.children where child.name == "bone_placeholder" {
-        boneEntities.append(child as? ModelEntity ?? ModelEntity())
-    }
+    // 状態に応じたスキンカラー（通常時: 肌色, ピンチ時: 黄色寄り, 掴み時: 緑色寄り）
+    let normalSkin = UIColor(red: 0.88, green: 0.74, blue: 0.65, alpha: 1.0)
+    let pinchSkin  = UIColor(red: 0.95, green: 0.85, blue: 0.40, alpha: 1.0)
+    let grabSkin   = UIColor(red: 0.50, green: 0.88, blue: 0.55, alpha: 1.0)
+    
+    let activeTint = isGrabbing ? grabSkin : (isPinching ? pinchSkin : normalSkin)
+    let activeMat  = createSkinMaterial(tint: activeTint)
 
     guard let joints = joints else {
-        for b in boneEntities { b.scale = .zero }
+        // 手が未検出の場合はすべて非表示
+        for child in handAnchor.children {
+            child.scale = SIMD3<Float>.zero
+        }
         return
     }
 
-    for (idx, (fromKey, toKey)) in kHandBones.enumerated() {
-        guard idx < boneEntities.count,
-              let fromPos = joints[fromKey],
-              let toPos   = joints[toKey]
-        else {
-            if idx < boneEntities.count { boneEntities[idx].scale = .zero }
-            continue
+    // 1. 各関節の更新
+    for child in handAnchor.children where child.name.hasPrefix("joint_") {
+        let key = String(child.name.dropFirst("joint_".count))
+        if let pos = joints[key] {
+            child.position = pos
+            child.scale    = SIMD3<Float>(1, 1, 1)
+            if let me = child as? ModelEntity {
+                me.model?.materials = [activeMat]
+            }
+        } else {
+            child.scale = SIMD3<Float>.zero
         }
+    }
 
-        let bone = boneEntities[idx]
-        let diff = toPos - fromPos
-        let len  = simd_length(diff)
-        guard len > 0.001 else { bone.scale = .zero; continue }
-
-        // ボーンを中点に配置し、長さと向きを調整
-        bone.position = (fromPos + toPos) * 0.5
-        bone.scale    = [1, 1, len / 0.001] // 元のheight=0.001に合わせてscale.z=len/0.001
-
-        // Y→diffの方向へ回転
-        let up     = simd_make_float3(0, 1, 0)
-        let dir    = simd_normalize(diff)
-        let cross  = simd_cross(up, dir)
-        let dot    = simd_dot(up, dir)
-        let crossLen = simd_length(cross)
-        if crossLen > 0.001 {
-            let angle = atan2(crossLen, dot)
-            bone.orientation = simd_quaternion(angle, simd_normalize(cross))
+    // 2. 指の節および手のひらの肉付けセグメントの更新
+    for (idx, def) in kHandSegmentDefs.enumerated() {
+        guard let segEntity = handAnchor.findEntity(named: "segment_\(idx)") as? ModelEntity else { continue }
+        
+        if let fromPos = joints[def.fromKey], let toPos = joints[def.toKey] {
+            let diff = toPos - fromPos
+            let len = simd_length(diff)
+            
+            if len > 0.002 {
+                // 位置は2点の中点
+                segEntity.position = (fromPos + toPos) * 0.5
+                
+                // 長さ（Y方向）と、幅・厚み（X, Z方向）を設定
+                segEntity.scale = SIMD3<Float>(def.thickness, len, def.thickness)
+                
+                // Y軸正方向 (0, 1, 0) から diff ベクトル方向への回転計算
+                let up = simd_make_float3(0, 1, 0)
+                let dir = simd_normalize(diff)
+                let dot = simd_dot(up, dir)
+                let cross = simd_cross(up, dir)
+                let crossLen = simd_length(cross)
+                
+                if crossLen > 0.001 {
+                    let angle = atan2(crossLen, dot)
+                    segEntity.orientation = simd_quaternion(angle, simd_normalize(cross))
+                } else if dot < 0 {
+                    segEntity.orientation = simd_quaternion(Float.pi, simd_make_float3(1, 0, 0))
+                } else {
+                    segEntity.orientation = simd_quaternion(0, simd_make_float3(0, 1, 0))
+                }
+                
+                segEntity.model?.materials = [activeMat]
+            } else {
+                segEntity.scale = SIMD3<Float>.zero
+            }
+        } else {
+            segEntity.scale = SIMD3<Float>.zero
         }
-
-        var boneMat = PhysicallyBasedMaterial()
-        boneMat.baseColor = .init(tint: activeTint.withAlphaComponent(0.85))
-        boneMat.roughness = .init(floatLiteral: 0.8)
-        boneMat.metallic  = .init(floatLiteral: 0.0)
-        bone.model?.materials = [boneMat]
     }
 }
