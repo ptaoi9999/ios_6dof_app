@@ -103,9 +103,6 @@ struct VRViewContainer: UIViewRepresentable {
         cameraAnchor.addChild(cameraEntity)
         arView.scene.addAnchor(cameraAnchor)
         
-        // アクティブなカメラに指定
-        arView.activeCamera = cameraEntity
-        
         return arView
     }
     
