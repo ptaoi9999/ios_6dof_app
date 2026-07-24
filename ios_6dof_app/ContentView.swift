@@ -9,7 +9,7 @@ enum Eye {
     case right
 }
 
-// ARKit（6DoF）と Vision（ハンドトラッキング）を管理するクラス
+// ARKit（6DoF）と Vision（ハンドトラッキング）および物理演算を管理するクラス
 class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     let session = ARSession()
     
@@ -20,8 +20,6 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     @Published var handPosition: simd_float3? = nil
     // 現在ピンチ（つまむ）されているか
     @Published var isPinching: Bool = false
-    // パススルー（背景カメラ映像）が有効か
-    @Published var isPassThroughEnabled: Bool = false
     
     // 現在手をグー（Fist）にしているか
     @Published var isFist: Bool = false
@@ -30,9 +28,14 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     // メニューを表示固定した際の世界座標Transform
     @Published var menuTransform: simd_float4x4 = matrix_identity_float4x4
     
+    // つまんで動かせるボールの位置と状態
+    @Published var ballPosition: simd_float3 = simd_make_float3(0, -0.5, -1.8) // 初期位置（テーブルの上）
+    @Published var isGrabbingBall: Bool = false
+    private var ballVelocity: simd_float3 = simd_make_float3(0, 0, 0)
+    private var handPosHistory: [simd_float3] = []
+    
     private var handPoseRequest = VNDetectHumanHandPoseRequest()
     private var frameCounter = 0
-    private var wasPinching: Bool = false // 前回のピンチ状態（エッジ検出用）
     private var wasFist: Bool = false     // 前回のグー状態（エッジ検出用）
     
     override init() {
@@ -57,6 +60,8 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
     
     // ARSessionDelegate
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        let dt: Float = 1.0 / 60.0 // 簡易物理シミュレーション用時間ステップ
+        
         // 1. カメラ姿勢の更新
         let transform = frame.camera.transform
         DispatchQueue.main.async {
@@ -72,7 +77,6 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             do {
                 try handler.perform([handPoseRequest])
                 if let observation = handPoseRequest.results?.first {
-                    // 各関節の取得
                     let indexPoints = try observation.recognizedPoints(.indexFinger)
                     let middlePoints = try observation.recognizedPoints(.middleFinger)
                     let ringPoints = try observation.recognizedPoints(.ringFinger)
@@ -100,14 +104,14 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                         let localPos = simd_make_float4(localX, localY, -0.4, 1.0)
                         let worldPos = transform * localPos
                         
-                        // 1. ピンチ判定 (親指と人差し指の距離)
+                        // ピンチ判定 (親指と人差し指の距離)
                         let distance = simd_distance(
                             simd_make_float2(Float(indexTip.location.x), Float(indexTip.location.y)),
                             simd_make_float2(Float(thumbTip.location.x), Float(thumbTip.location.y))
                         )
                         let pinchDetected = distance < 0.08
                         
-                        // 2. グー（Fist）の判定: 4本の指先が手首に対して付け根(MCP)より近くなっているか
+                        // グー（Fist）判定
                         let wristPos = simd_make_float2(Float(wrist.location.x), Float(wrist.location.y))
                         
                         let indexTipDist = simd_distance(simd_make_float2(Float(indexTip.location.x), Float(indexTip.location.y)), wristPos)
@@ -128,27 +132,50 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                                            (littleTipDist < littleMCPDist)
                         
                         DispatchQueue.main.async {
-                            self.handPosition = simd_make_float3(worldPos.x, worldPos.y, worldPos.z)
+                            let parsedHandPos = simd_make_float3(worldPos.x, worldPos.y, worldPos.z)
+                            self.handPosition = parsedHandPos
                             self.isPinching = pinchDetected
                             self.isFist = fistDetected
                             
-                            // A. ピンチのトリガーでパススルー切り替え
-                            if !self.wasPinching && pinchDetected {
-                                self.isPassThroughEnabled.toggle()
-                            }
-                            self.wasPinching = pinchDetected
-                            
-                            // B. グーのトリガーでLaunchPadメニュー切り替え
+                            // グーのトリガーでLaunchPadメニュー切り替え
                             if !self.wasFist && fistDetected {
                                 self.isMenuVisible.toggle()
                                 if self.isMenuVisible {
-                                    // メニュー表示時のカメラ位置の正面 50cm にメニューを固定する
+                                    // メニュー正面 50cm に固定
                                     var offsetMatrix = matrix_identity_float4x4
-                                    offsetMatrix.columns.3 = simd_make_float4(0, 0.05, -0.5, 1) // 正面50cm, 少し上
+                                    offsetMatrix.columns.3 = simd_make_float4(0, 0.05, -0.5, 1)
                                     self.menuTransform = self.cameraTransform * offsetMatrix
                                 }
                             }
                             self.wasFist = fistDetected
+                            
+                            // --- ボールの掴み・投げ処理 ---
+                            let distToBall = simd_distance(parsedHandPos, self.ballPosition)
+                            if pinchDetected {
+                                if distToBall < 0.15 || self.isGrabbingBall {
+                                    self.isGrabbingBall = true
+                                    self.ballPosition = parsedHandPos
+                                    
+                                    // 手の位置履歴を保持（速度算出用）
+                                    self.handPosHistory.append(parsedHandPos)
+                                    if self.handPosHistory.count > 5 {
+                                        self.handPosHistory.removeFirst()
+                                    }
+                                    self.ballVelocity = .zero
+                                }
+                            } else {
+                                if self.isGrabbingBall {
+                                    self.isGrabbingBall = false
+                                    // 離した瞬間の速度を計算してボールに与える（投げる動作）
+                                    if self.handPosHistory.count >= 2 {
+                                        let first = self.handPosHistory.first!
+                                        let last = self.handPosHistory.last!
+                                        let count = Float(self.handPosHistory.count)
+                                        self.ballVelocity = (last - first) / (count * (dt * 3.0)) // 3フレーム周期のため補正
+                                    }
+                                    self.handPosHistory.removeAll()
+                                }
+                            }
                         }
                     } else {
                         clearHandState()
@@ -161,6 +188,50 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                 clearHandState()
             }
         }
+        
+        // 3. ボールの物理シミュレーション (掴まれていない場合に適用)
+        if !self.isGrabbingBall {
+            let g: Float = -9.8
+            let restitution: Float = 0.65 // 跳ね返り係数
+            
+            // 重力を適用
+            self.ballVelocity.y += g * dt
+            
+            // 空気抵抗（減衰）
+            self.ballVelocity *= 0.99
+            
+            // 位置を更新
+            var nextPos = self.ballPosition + self.ballVelocity * dt
+            
+            // 床との衝突判定 (床 Y = -1.2m, ボールの半径 0.08m)
+            let floorLimit: Float = -1.2 + 0.08
+            if nextPos.y < floorLimit {
+                nextPos.y = floorLimit
+                self.ballVelocity.y = -self.ballVelocity.y * restitution
+                // 床との摩擦
+                self.ballVelocity.x *= 0.92
+                self.ballVelocity.z *= 0.92
+            }
+            
+            // テーブルとの衝突判定 (上面 Y = -0.6m, ボールの半径 0.08m -> Y = -0.52m)
+            // テーブル範囲: X ∈ [-0.8, 0.8], Z ∈ [-2.5, -1.5]
+            let tableTopLimit: Float = -0.6 + 0.08
+            if nextPos.y < tableTopLimit && nextPos.y > tableTopLimit - 0.15 {
+                if nextPos.x >= -0.8 && nextPos.x <= 0.8 &&
+                   nextPos.z >= -2.5 && nextPos.z <= -1.5 {
+                    if self.ballVelocity.y < 0 {
+                        nextPos.y = tableTopLimit
+                        self.ballVelocity.y = -self.ballVelocity.y * restitution
+                        self.ballVelocity.x *= 0.92
+                        self.ballVelocity.z *= 0.92
+                    }
+                }
+            }
+            
+            DispatchQueue.main.async {
+                self.ballPosition = nextPos
+            }
+        }
     }
     
     private func clearHandState() {
@@ -168,8 +239,11 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             self.handPosition = nil
             self.isPinching = false
             self.isFist = false
-            self.wasPinching = false
             self.wasFist = false
+            if self.isGrabbingBall {
+                self.isGrabbingBall = false
+                self.handPosHistory.removeAll()
+            }
         }
     }
 }
@@ -200,7 +274,8 @@ struct VRViewContainer: UIViewRepresentable {
     @ObservedObject var tracker: ARTracker
     
     func makeUIView(context: Context) -> ARView {
-        let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
+        // パススルー機能を削除し、純粋な非AR（VRモード）に戻す
+        let arView = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
         arView.session = tracker.session
         
         // 1. VRChat Home風のバーチャル空間を構築
@@ -226,10 +301,20 @@ struct VRViewContainer: UIViewRepresentable {
         handAnchor.addChild(handEntity)
         arView.scene.addAnchor(handAnchor)
         
-        // 4. LaunchPadメニューEntityの追加
+        // 4. つまんで動かせるボールEntityの追加
+        let ballMesh = MeshResource.generateSphere(radius: 0.08)
+        let ballMaterial = SimpleMaterial(color: .systemRed, isMetallic: true)
+        let ballEntity = ModelEntity(mesh: ballMesh, materials: [ballMaterial])
+        ballEntity.name = "vrBall"
+        
+        let ballAnchor = AnchorEntity(world: .zero)
+        ballAnchor.addChild(ballEntity)
+        arView.scene.addAnchor(ballAnchor)
+        
+        // 5. LaunchPadメニューEntityの追加
         let menuEntity = createLaunchPadEntity()
         menuEntity.name = "vrMenu"
-        menuEntity.scale = .zero // 初期状態は非表示
+        menuEntity.scale = .zero
         
         let menuAnchor = AnchorEntity(world: .zero)
         menuAnchor.addChild(menuEntity)
@@ -239,9 +324,6 @@ struct VRViewContainer: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: ARView, context: Context) {
-        // パススルー状態に基づいて背景の描画を切り替える
-        uiView.environment.background = tracker.isPassThroughEnabled ? .cameraFeed() : .color(.black)
-        
         // カメラの位置・回転をARKitに同期
         if let camera = uiView.scene.findEntity(named: "vrCamera") {
             let baseTransform = tracker.cameraTransform
@@ -259,8 +341,8 @@ struct VRViewContainer: UIViewRepresentable {
                 hand.position = handPos
                 hand.scale = [1, 1, 1]
                 
-                // ピンチ状態に応じて色を変更
-                let color: UIColor = tracker.isPinching ? .green : .white
+                // 掴み判定またはピンチ状態で色を変更
+                let color: UIColor = tracker.isGrabbingBall ? .systemGreen : (tracker.isPinching ? .systemYellow : .white)
                 let material = SimpleMaterial(color: color, isMetallic: tracker.isPinching)
                 if var modelComp = hand.components[ModelComponent.self] as? ModelComponent {
                     modelComp.materials = [material]
@@ -271,18 +353,16 @@ struct VRViewContainer: UIViewRepresentable {
             }
         }
         
+        // ボールの3D球体の位置更新 (trackerが計算した同期物理位置をそのまま代入)
+        if let ball = uiView.scene.findEntity(named: "vrBall") {
+            ball.position = tracker.ballPosition
+        }
+        
         // LaunchPadメニューの表示・位置同期
         if let menu = uiView.scene.findEntity(named: "vrMenu") {
             if tracker.isMenuVisible {
                 menu.transform.matrix = tracker.menuTransform
                 menu.scale = [1, 1, 1]
-                
-                // パススルー状態等でメニューのカラーやボタンの点灯を変えるビジュアル更新
-                if let btnPassthrough = menu.findEntity(named: "btnPassthrough") as? ModelEntity {
-                    let btnColor: UIColor = tracker.isPassThroughEnabled ? .systemGreen : .systemGray
-                    let btnMat = SimpleMaterial(color: btnColor, isMetallic: tracker.isPassThroughEnabled)
-                    btnPassthrough.model?.materials = [btnMat]
-                }
             } else {
                 menu.scale = .zero
             }
@@ -301,13 +381,13 @@ struct VRViewContainer: UIViewRepresentable {
         titleBar.position = [0, 0.1, 0.008]
         menuBase.addChild(titleBar)
         
-        // パススルー切り替え表示ボタン (プロトタイプ表示用)
-        let btnPassthrough = ModelEntity(mesh: MeshResource.generateBox(width: 0.15, height: 0.06, depth: 0.015), materials: [SimpleMaterial(color: .systemGray, isMetallic: false)])
-        btnPassthrough.name = "btnPassthrough"
-        btnPassthrough.position = [-0.09, -0.02, 0.01]
-        menuBase.addChild(btnPassthrough)
+        // ボタンA (ダミーボタン1)
+        let btnMatA = SimpleMaterial(color: .systemBlue, isMetallic: false)
+        let btnA = ModelEntity(mesh: MeshResource.generateBox(width: 0.15, height: 0.06, depth: 0.015), materials: [btnMatA])
+        btnA.position = [-0.09, -0.02, 0.01]
+        menuBase.addChild(btnA)
         
-        // ダミーボタン
+        // ボタンB (ダミーボタン2)
         let btnMatB = SimpleMaterial(color: .systemOrange, isMetallic: false)
         let btnB = ModelEntity(mesh: MeshResource.generateBox(width: 0.15, height: 0.06, depth: 0.015), materials: [btnMatB])
         btnB.position = [0.09, -0.02, 0.01]
