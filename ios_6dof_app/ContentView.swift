@@ -82,7 +82,7 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                 if let observation = handPoseRequest.results?.first {
                     // 各指の関節を取得
                     var jointsDict: [String: simd_float3] = [:]
-                    let allJointGroups: [VNDetectHumanHandPoseRequest.JointsGroupName] = [
+                    let allJointGroups: [VNHumanHandPoseObservation.JointsGroupName] = [
                         .thumb, .indexFinger, .middleFinger, .ringFinger, .littleFinger
                     ]
                     
@@ -113,15 +113,15 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                     }
                     
                     // 必要なキーのポイントをキャストして取得
-                    let indexTipKey = VNDetectHumanHandPoseRequest.JointName.indexTip.rawValue.rawValue
-                    let indexMCPKey = VNDetectHumanHandPoseRequest.JointName.indexMCP.rawValue.rawValue
-                    let middleTipKey = VNDetectHumanHandPoseRequest.JointName.middleTip.rawValue.rawValue
-                    let middleMCPKey = VNDetectHumanHandPoseRequest.JointName.middleMCP.rawValue.rawValue
-                    let ringTipKey = VNDetectHumanHandPoseRequest.JointName.ringTip.rawValue.rawValue
-                    let ringMCPKey = VNDetectHumanHandPoseRequest.JointName.ringMCP.rawValue.rawValue
-                    let littleTipKey = VNDetectHumanHandPoseRequest.JointName.littleTip.rawValue.rawValue
-                    let littleMCPKey = VNDetectHumanHandPoseRequest.JointName.littleMCP.rawValue.rawValue
-                    let thumbTipKey = VNDetectHumanHandPoseRequest.JointName.thumbTip.rawValue.rawValue
+                    let indexTipKey = VNHumanHandPoseObservation.JointName.indexTip.rawValue.rawValue
+                    let indexMCPKey = VNHumanHandPoseObservation.JointName.indexMCP.rawValue.rawValue
+                    let middleTipKey = VNHumanHandPoseObservation.JointName.middleTip.rawValue.rawValue
+                    let middleMCPKey = VNHumanHandPoseObservation.JointName.middleMCP.rawValue.rawValue
+                    let ringTipKey = VNHumanHandPoseObservation.JointName.ringTip.rawValue.rawValue
+                    let ringMCPKey = VNHumanHandPoseObservation.JointName.ringMCP.rawValue.rawValue
+                    let littleTipKey = VNHumanHandPoseObservation.JointName.littleTip.rawValue.rawValue
+                    let littleMCPKey = VNHumanHandPoseObservation.JointName.littleMCP.rawValue.rawValue
+                    let thumbTipKey = VNHumanHandPoseObservation.JointName.thumbTip.rawValue.rawValue
                     
                     if let indexTipPos = jointsDict[indexTipKey],
                        let indexMCPPos = jointsDict[indexMCPKey],
