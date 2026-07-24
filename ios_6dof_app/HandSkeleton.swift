@@ -1,101 +1,100 @@
 import RealityKit
 import UIKit
+import Vision
 import simd
 
-/// 手の骨格ジョイント名リスト
-let kHandJointNames: [String] = [
-    "wrist",
+/// 手の骨格ジョイント型リスト
+let kHandJointNames: [VNHumanHandPoseObservation.JointName] = [
+    .wrist,
     // 親指
-    "VNHHPRK_TBT", "VNHHPRK_TMP", "VNHHPRK_TIP", "VNHHPRK_TTX",
+    .thumbCMC, .thumbMP, .thumbIP, .thumbTip,
     // 人差し指
-    "VNHHPRK_ICP", "VNHHPRK_IPP", "VNHHPRK_IIP", "VNHHPRK_ITX",
+    .indexMCP, .indexPIP, .indexDIP, .indexTip,
     // 中指
-    "VNHHPRK_MCP", "VNHHPRK_MPP", "VNHHPRK_MIP", "VNHHPRK_MTX",
+    .middleMCP, .middlePIP, .middleDIP, .middleTip,
     // 薬指
-    "VNHHPRK_RCP", "VNHHPRK_RPP", "VNHHPRK_RIP", "VNHHPRK_RTX",
+    .ringMCP, .ringPIP, .ringDIP, .ringTip,
     // 小指
-    "VNHHPRK_PCP", "VNHHPRK_PPP", "VNHHPRK_PIP", "VNHHPRK_PTX"
+    .littleMCP, .littlePIP, .littleDIP, .littleTip
 ]
 
-/// 指の節（Segment）および手のひらを埋めるボーン接続（親, 子, 太さ）のリスト
+/// 指の節（Segment）および手のひらを埋めるボーン接続の定義
 struct HandSegmentDef {
-    let fromKey: String
-    let toKey: String
+    let fromKey: VNHumanHandPoseObservation.JointName
+    let toKey: VNHumanHandPoseObservation.JointName
     let thickness: Float // 太さ（メートル単位）
 }
 
 let kHandSegmentDefs: [HandSegmentDef] = [
     // 手のひら / 手の甲の肉付け
-    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_TBT", thickness: 0.022),
-    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_ICP", thickness: 0.024),
-    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_MCP", thickness: 0.025),
-    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_RCP", thickness: 0.023),
-    HandSegmentDef(fromKey: "wrist", toKey: "VNHHPRK_PCP", thickness: 0.021),
+    HandSegmentDef(fromKey: .wrist, toKey: .thumbCMC, thickness: 0.022),
+    HandSegmentDef(fromKey: .wrist, toKey: .indexMCP, thickness: 0.024),
+    HandSegmentDef(fromKey: .wrist, toKey: .middleMCP, thickness: 0.025),
+    HandSegmentDef(fromKey: .wrist, toKey: .ringMCP, thickness: 0.023),
+    HandSegmentDef(fromKey: .wrist, toKey: .littleMCP, thickness: 0.021),
     
-    // 手のひら横方向の接続（掌を一枚の肉付けに見せる）
-    HandSegmentDef(fromKey: "VNHHPRK_ICP", toKey: "VNHHPRK_MCP", thickness: 0.022),
-    HandSegmentDef(fromKey: "VNHHPRK_MCP", toKey: "VNHHPRK_RCP", thickness: 0.022),
-    HandSegmentDef(fromKey: "VNHHPRK_RCP", toKey: "VNHHPRK_PCP", thickness: 0.020),
-    HandSegmentDef(fromKey: "VNHHPRK_TBT", toKey: "VNHHPRK_ICP", thickness: 0.020),
+    // 手のひら横方向の接続
+    HandSegmentDef(fromKey: .indexMCP, toKey: .middleMCP, thickness: 0.022),
+    HandSegmentDef(fromKey: .middleMCP, toKey: .ringMCP, thickness: 0.022),
+    HandSegmentDef(fromKey: .ringMCP, toKey: .littleMCP, thickness: 0.020),
+    HandSegmentDef(fromKey: .thumbCMC, toKey: .indexMCP, thickness: 0.020),
 
     // 親指
-    HandSegmentDef(fromKey: "VNHHPRK_TBT", toKey: "VNHHPRK_TMP", thickness: 0.020),
-    HandSegmentDef(fromKey: "VNHHPRK_TMP", toKey: "VNHHPRK_TIP", thickness: 0.018),
-    HandSegmentDef(fromKey: "VNHHPRK_TIP", toKey: "VNHHPRK_TTX", thickness: 0.016),
+    HandSegmentDef(fromKey: .thumbCMC, toKey: .thumbMP, thickness: 0.020),
+    HandSegmentDef(fromKey: .thumbMP, toKey: .thumbIP, thickness: 0.018),
+    HandSegmentDef(fromKey: .thumbIP, toKey: .thumbTip, thickness: 0.016),
 
     // 人差し指
-    HandSegmentDef(fromKey: "VNHHPRK_ICP", toKey: "VNHHPRK_IPP", thickness: 0.019),
-    HandSegmentDef(fromKey: "VNHHPRK_IPP", toKey: "VNHHPRK_IIP", thickness: 0.017),
-    HandSegmentDef(fromKey: "VNHHPRK_IIP", toKey: "VNHHPRK_ITX", thickness: 0.015),
+    HandSegmentDef(fromKey: .indexMCP, toKey: .indexPIP, thickness: 0.019),
+    HandSegmentDef(fromKey: .indexPIP, toKey: .indexDIP, thickness: 0.017),
+    HandSegmentDef(fromKey: .indexDIP, toKey: .indexTip, thickness: 0.015),
 
     // 中指
-    HandSegmentDef(fromKey: "VNHHPRK_MCP", toKey: "VNHHPRK_MPP", thickness: 0.020),
-    HandSegmentDef(fromKey: "VNHHPRK_MPP", toKey: "VNHHPRK_MIP", thickness: 0.018),
-    HandSegmentDef(fromKey: "VNHHPRK_MIP", toKey: "VNHHPRK_MTX", thickness: 0.015),
+    HandSegmentDef(fromKey: .middleMCP, toKey: .middlePIP, thickness: 0.020),
+    HandSegmentDef(fromKey: .middlePIP, toKey: .middleDIP, thickness: 0.018),
+    HandSegmentDef(fromKey: .middleDIP, toKey: .middleTip, thickness: 0.015),
 
     // 薬指
-    HandSegmentDef(fromKey: "VNHHPRK_RCP", toKey: "VNHHPRK_RPP", thickness: 0.019),
-    HandSegmentDef(fromKey: "VNHHPRK_RPP", toKey: "VNHHPRK_RIP", thickness: 0.017),
-    HandSegmentDef(fromKey: "VNHHPRK_RIP", toKey: "VNHHPRK_RTX", thickness: 0.014),
+    HandSegmentDef(fromKey: .ringMCP, toKey: .ringPIP, thickness: 0.019),
+    HandSegmentDef(fromKey: .ringPIP, toKey: .ringDIP, thickness: 0.017),
+    HandSegmentDef(fromKey: .ringDIP, toKey: .ringTip, thickness: 0.014),
 
     // 小指
-    HandSegmentDef(fromKey: "VNHHPRK_PCP", toKey: "VNHHPRK_PPP", thickness: 0.017),
-    HandSegmentDef(fromKey: "VNHHPRK_PPP", toKey: "VNHHPRK_PIP", thickness: 0.015),
-    HandSegmentDef(fromKey: "VNHHPRK_PIP", toKey: "VNHHPRK_PTX", thickness: 0.013)
+    HandSegmentDef(fromKey: .littleMCP, toKey: .littlePIP, thickness: 0.017),
+    HandSegmentDef(fromKey: .littlePIP, toKey: .littleDIP, thickness: 0.015),
+    HandSegmentDef(fromKey: .littleDIP, toKey: .littleTip, thickness: 0.013)
 ]
 
 /// 肌色のリアルなマテリアルを生成する
 func createSkinMaterial(tint: UIColor) -> PhysicallyBasedMaterial {
     var mat = PhysicallyBasedMaterial()
     mat.baseColor = .init(tint: tint)
-    mat.roughness = .init(floatLiteral: 0.45) // 人間の皮膚に近いしっとりとした光沢
+    mat.roughness = .init(floatLiteral: 0.45)
     mat.metallic  = .init(floatLiteral: 0.0)
     return mat
 }
 
-/// リアルな手のエンティティ（関節球体＋厚みのある指・手掌セグメント）を生成
+/// リアルな手のエンティティ（関節球体＋肉付けセグメント）を生成
 func makeHandSkeletonAnchor() -> AnchorEntity {
     let anchor = AnchorEntity(world: .zero)
     anchor.name = "handAnchor"
 
     let skinMat = createSkinMaterial(tint: UIColor(red: 0.88, green: 0.74, blue: 0.65, alpha: 1.0))
 
-    // 1. 各関節の球体（関節の滑らかな膨らみ）
-    for name in kHandJointNames {
-        let isTip = name.hasSuffix("TX") || name.hasSuffix("TTX")
-        let isWrist = name == "wrist"
-        
-        // 関節ごとの適切な半径
+    // 1. 各関節の球体 (全21箇所)
+    for (idx, joint) in kHandJointNames.enumerated() {
+        let isTip = joint == .thumbTip || joint == .indexTip || joint == .middleTip || joint == .ringTip || joint == .littleTip
+        let isWrist = joint == .wrist
         let radius: Float = isWrist ? 0.018 : (isTip ? 0.011 : 0.012)
 
         let mesh = MeshResource.generateSphere(radius: radius)
         let entity = ModelEntity(mesh: mesh, materials: [skinMat])
-        entity.name = "joint_\(name)"
+        entity.name = "joint_\(idx)"
         entity.scale = SIMD3<Float>.zero
         anchor.addChild(entity)
     }
 
-    // 2. 指の節・手のひらの肉付けセグメント（標準サイズ 1m x 1m x 1m のBoxで初期化し、scaleで太さと長さを制御）
+    // 2. 指の節・手のひらの肉付けセグメント
     let baseMesh = MeshResource.generateBox(width: 1.0, height: 1.0, depth: 1.0)
     for (idx, _) in kHandSegmentDefs.enumerated() {
         let entity = ModelEntity(mesh: baseMesh, materials: [skinMat])
@@ -107,14 +106,13 @@ func makeHandSkeletonAnchor() -> AnchorEntity {
     return anchor
 }
 
-/// 毎フレーム、手のエンティティの位置・方向・厚みをリアルタイム更新
+/// 毎フレーム、手のエンティティの位置・方向・厚みを更新
 func updateHandSkeleton(
     handAnchor: Entity,
-    joints: [String: simd_float3]?,
+    joints: [VNHumanHandPoseObservation.JointName: simd_float3]?,
     isPinching: Bool,
     isGrabbing: Bool
 ) {
-    // 状態に応じたスキンカラー（通常時: 肌色, ピンチ時: 黄色寄り, 掴み時: 緑色寄り）
     let normalSkin = UIColor(red: 0.88, green: 0.74, blue: 0.65, alpha: 1.0)
     let pinchSkin  = UIColor(red: 0.95, green: 0.85, blue: 0.40, alpha: 1.0)
     let grabSkin   = UIColor(red: 0.50, green: 0.88, blue: 0.55, alpha: 1.0)
@@ -123,24 +121,21 @@ func updateHandSkeleton(
     let activeMat  = createSkinMaterial(tint: activeTint)
 
     guard let joints = joints else {
-        // 手が未検出の場合はすべて非表示
         for child in handAnchor.children {
             child.scale = SIMD3<Float>.zero
         }
         return
     }
 
-    // 1. 各関節の更新
-    for child in handAnchor.children where child.name.hasPrefix("joint_") {
-        let key = String(child.name.dropFirst("joint_".count))
-        if let pos = joints[key] {
-            child.position = pos
-            child.scale    = SIMD3<Float>(1, 1, 1)
-            if let me = child as? ModelEntity {
-                me.model?.materials = [activeMat]
-            }
+    // 1. 各関節球体の更新
+    for (idx, jointKey) in kHandJointNames.enumerated() {
+        guard let entity = handAnchor.findEntity(named: "joint_\(idx)") as? ModelEntity else { continue }
+        if let pos = joints[jointKey] {
+            entity.position = pos
+            entity.scale    = SIMD3<Float>(1, 1, 1)
+            entity.model?.materials = [activeMat]
         } else {
-            child.scale = SIMD3<Float>.zero
+            entity.scale = SIMD3<Float>.zero
         }
     }
 
@@ -153,13 +148,9 @@ func updateHandSkeleton(
             let len = simd_length(diff)
             
             if len > 0.002 {
-                // 位置は2点の中点
                 segEntity.position = (fromPos + toPos) * 0.5
-                
-                // 長さ（Y方向）と、幅・厚み（X, Z方向）を設定
                 segEntity.scale = SIMD3<Float>(def.thickness, len, def.thickness)
                 
-                // Y軸正方向 (0, 1, 0) から diff ベクトル方向への回転計算
                 let up = simd_make_float3(0, 1, 0)
                 let dir = simd_normalize(diff)
                 let dot = simd_dot(up, dir)

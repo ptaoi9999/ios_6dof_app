@@ -11,8 +11,8 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
 
     // 代表的な手の3D世界座標 (掴み判定などに使用)
     @Published var handPosition: simd_float3? = nil
-    // 検出されたすべての手の関節の3D世界座標（辞書）
-    @Published var handJoints: [String: simd_float3]? = nil
+    // 検出されたすべての手の関節の3D世界座標（型セーフなJointNameキー）
+    @Published var handJoints: [VNHumanHandPoseObservation.JointName: simd_float3]? = nil
 
     // 現在ピンチ（つまむ）されているか
     @Published var isPinching: Bool = false
@@ -82,67 +82,51 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                 clearHandState(); return
             }
 
-            var jointsDict = [String: simd_float3]()
-            let allGroups: [VNHumanHandPoseObservation.JointsGroupName] = [
-                .thumb, .indexFinger, .middleFinger, .ringFinger, .littleFinger
+            var jointsDict = [VNHumanHandPoseObservation.JointName: simd_float3]()
+            let allJoints: [VNHumanHandPoseObservation.JointName] = [
+                .wrist,
+                .thumbCMC, .thumbMP, .thumbIP, .thumbTip,
+                .indexMCP, .indexPIP, .indexDIP, .indexTip,
+                .middleMCP, .middlePIP, .middleDIP, .middleTip,
+                .ringMCP, .ringPIP, .ringDIP, .ringTip,
+                .littleMCP, .littlePIP, .littleDIP, .littleTip
             ]
-            for group in allGroups {
-                if let pts = try? observation.recognizedPoints(group) {
-                    for (name, pt) in pts where pt.confidence > 0.3 {
-                        let lx = (Float(pt.location.x) - 0.5) * 0.4
-                        let ly = (Float(pt.location.y) - 0.5) * 0.4
-                        let world = transform * simd_make_float4(lx, ly, -0.4, 1)
-                        jointsDict[name.rawValue.rawValue] = simd_make_float3(world.x, world.y, world.z)
-                    }
+
+            for jointName in allJoints {
+                if let pt = try? observation.recognizedPoint(jointName), pt.confidence > 0.3 {
+                    let lx = (Float(pt.location.x) - 0.5) * 0.4
+                    let ly = (Float(pt.location.y) - 0.5) * 0.4
+                    let world = transform * simd_make_float4(lx, ly, -0.4, 1)
+                    jointsDict[jointName] = simd_make_float3(world.x, world.y, world.z)
                 }
             }
-            // 手首
-            if let allPts = try? observation.recognizedPoints(.all),
-               let wPt = allPts[.wrist], wPt.confidence > 0.3 {
-                let lx = (Float(wPt.location.x) - 0.5) * 0.4
-                let ly = (Float(wPt.location.y) - 0.5) * 0.4
-                let world = transform * simd_make_float4(lx, ly, -0.4, 1)
-                jointsDict["wrist"] = simd_make_float3(world.x, world.y, world.z)
+
+            // 代表点（人差し指先端または手首）
+            guard let indexTip = jointsDict[.indexTip] ?? jointsDict[.wrist] else {
+                clearHandState(); return
             }
 
-            // 各関節キー
-            let indexTipKey  = VNHumanHandPoseObservation.JointName.indexTip.rawValue.rawValue
-            let indexMCPKey  = VNHumanHandPoseObservation.JointName.indexMCP.rawValue.rawValue
-            let middleTipKey = VNHumanHandPoseObservation.JointName.middleTip.rawValue.rawValue
-            let middleMCPKey = VNHumanHandPoseObservation.JointName.middleMCP.rawValue.rawValue
-            let ringTipKey   = VNHumanHandPoseObservation.JointName.ringTip.rawValue.rawValue
-            let ringMCPKey   = VNHumanHandPoseObservation.JointName.ringMCP.rawValue.rawValue
-            let littleTipKey = VNHumanHandPoseObservation.JointName.littleTip.rawValue.rawValue
-            let littleMCPKey = VNHumanHandPoseObservation.JointName.littleMCP.rawValue.rawValue
-            let thumbTipKey  = VNHumanHandPoseObservation.JointName.thumbTip.rawValue.rawValue
-
-            guard
-                let indexTip  = jointsDict[indexTipKey],
-                let indexMCP  = jointsDict[indexMCPKey],
-                let middleTip = jointsDict[middleTipKey],
-                let middleMCP = jointsDict[middleMCPKey],
-                let ringTip   = jointsDict[ringTipKey],
-                let ringMCP   = jointsDict[ringMCPKey],
-                let littleTip = jointsDict[littleTipKey],
-                let littleMCP = jointsDict[littleMCPKey],
-                let thumbTip  = jointsDict[thumbTipKey],
-                let wristPos  = jointsDict["wrist"]
-            else { clearHandState(); return }
+            let wristPos  = jointsDict[.wrist] ?? indexTip
+            let thumbTip  = jointsDict[.thumbTip] ?? indexTip
 
             // ピンチ判定 (3D距離 5cm)
             let pinchDetected = simd_distance(indexTip, thumbTip) < 0.05
 
             // グー判定: 指先が付け根より手首に近い
-            let fistDetected =
-                simd_distance(indexTip,  wristPos) < simd_distance(indexMCP,  wristPos) &&
-                simd_distance(middleTip, wristPos) < simd_distance(middleMCP, wristPos) &&
-                simd_distance(ringTip,   wristPos) < simd_distance(ringMCP,   wristPos) &&
-                simd_distance(littleTip, wristPos) < simd_distance(littleMCP, wristPos)
-
-            let parsedHandPos = indexTip
+            var fistDetected = false
+            if let indexMCP = jointsDict[.indexMCP],
+               let middleTip = jointsDict[.middleTip], let middleMCP = jointsDict[.middleMCP],
+               let ringTip = jointsDict[.ringTip], let ringMCP = jointsDict[.ringMCP],
+               let littleTip = jointsDict[.littleTip], let littleMCP = jointsDict[.littleMCP] {
+                fistDetected =
+                    simd_distance(indexTip,  wristPos) < simd_distance(indexMCP,  wristPos) &&
+                    simd_distance(middleTip, wristPos) < simd_distance(middleMCP, wristPos) &&
+                    simd_distance(ringTip,   wristPos) < simd_distance(ringMCP,   wristPos) &&
+                    simd_distance(littleTip, wristPos) < simd_distance(littleMCP, wristPos)
+            }
 
             DispatchQueue.main.async {
-                self.handPosition = parsedHandPos
+                self.handPosition = indexTip
                 self.handJoints   = jointsDict
                 self.isPinching   = pinchDetected
                 self.isFist       = fistDetected
@@ -159,12 +143,12 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                 self.wasFist = fistDetected
 
                 // ボールの掴み・投げ処理
-                let distToBall = simd_distance(parsedHandPos, self.ballPosition)
+                let distToBall = simd_distance(indexTip, self.ballPosition)
                 if pinchDetected {
                     if distToBall < 0.15 || self.isGrabbingBall {
                         self.isGrabbingBall = true
-                        self.ballPosition = parsedHandPos
-                        self.handPosHistory.append(parsedHandPos)
+                        self.ballPosition = indexTip
+                        self.handPosHistory.append(indexTip)
                         if self.handPosHistory.count > 5 { self.handPosHistory.removeFirst() }
                         self.ballVelocity = .zero
                     }
