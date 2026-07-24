@@ -1,0 +1,27 @@
+# Xcode
+#
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+*.xcworkspace/
+.DS_Store
+profile
+*.moved-aside
+DerivedData
+.signatures/
+
+# SwiftPM
+.build/
+.swiftpm/xcode/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# Temporary files
+*.swp
+*~
