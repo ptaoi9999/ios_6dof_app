@@ -32,7 +32,8 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
 
     private let handPoseRequest = VNDetectHumanHandPoseRequest()
     private var frameCounter = 0
-    private var wasFist: Bool = false
+    private var wasFist: Bool = false // 前回のグー状態（エッジ検出用）
+    private var wasOpen: Bool = false // 前回のパー状態（エッジ検出用）
 
     override init() {
         super.init()
@@ -112,17 +113,21 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             // ピンチ判定 (3D距離 5cm)
             let pinchDetected = simd_distance(indexTip, thumbTip) < 0.05
 
-            // グー判定: 指先が付け根より手首に近い
+            // グー（Fist）とパー（Open）の判定
             var fistDetected = false
+            var openDetected = false
             if let indexMCP = jointsDict[.indexMCP],
                let middleTip = jointsDict[.middleTip], let middleMCP = jointsDict[.middleMCP],
                let ringTip = jointsDict[.ringTip], let ringMCP = jointsDict[.ringMCP],
                let littleTip = jointsDict[.littleTip], let littleMCP = jointsDict[.littleMCP] {
-                fistDetected =
-                    simd_distance(indexTip,  wristPos) < simd_distance(indexMCP,  wristPos) &&
-                    simd_distance(middleTip, wristPos) < simd_distance(middleMCP, wristPos) &&
-                    simd_distance(ringTip,   wristPos) < simd_distance(ringMCP,   wristPos) &&
-                    simd_distance(littleTip, wristPos) < simd_distance(littleMCP, wristPos)
+                
+                let indexBent  = simd_distance(indexTip,  wristPos) < simd_distance(indexMCP,  wristPos)
+                let middleBent = simd_distance(middleTip, wristPos) < simd_distance(middleMCP, wristPos)
+                let ringBent   = simd_distance(ringTip,   wristPos) < simd_distance(ringMCP,   wristPos)
+                let littleBent = simd_distance(littleTip, wristPos) < simd_distance(littleMCP, wristPos)
+
+                fistDetected = indexBent && middleBent && ringBent && littleBent
+                openDetected = !indexBent && !middleBent && !ringBent && !littleBent
             }
 
             DispatchQueue.main.async {
@@ -131,16 +136,20 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
                 self.isPinching   = pinchDetected
                 self.isFist       = fistDetected
 
-                // グーのトリガーでメニュー切り替え
+                // グー（Fist）のトリガーで LaunchPad メニューを非表示にする
                 if !self.wasFist && fistDetected {
-                    self.isMenuVisible.toggle()
-                    if self.isMenuVisible {
-                        var offset = matrix_identity_float4x4
-                        offset.columns.3 = simd_make_float4(0, 0.05, -0.5, 1)
-                        self.menuTransform = self.cameraTransform * offset
-                    }
+                    self.isMenuVisible = false
                 }
                 self.wasFist = fistDetected
+
+                // パー（Open）のトリガーで LaunchPad メニューを表示する
+                if !self.wasOpen && openDetected {
+                    self.isMenuVisible = true
+                    var offset = matrix_identity_float4x4
+                    offset.columns.3 = simd_make_float4(0, 0.05, -0.5, 1)
+                    self.menuTransform = self.cameraTransform * offset
+                }
+                self.wasOpen = openDetected
 
                 // ボールの掴み・投げ処理
                 let distToBall = simd_distance(indexTip, self.ballPosition)
@@ -207,6 +216,7 @@ class ARTracker: NSObject, ObservableObject, ARSessionDelegate {
             self.isPinching   = false
             self.isFist       = false
             self.wasFist      = false
+            self.wasOpen      = false
             if self.isGrabbingBall {
                 self.isGrabbingBall = false
                 self.handPosHistory.removeAll()
