@@ -26,4 +26,4 @@
   - [x] SwiftUIとRealityKit (ARView) を使った3DoFステレオカメラと簡易3D空間の実装（2レンズVR対応）
   - [x] GitHub Actionsによる署名なしIPAビルドワークフローの構築
 - [x] フェーズ2: 6DoFでの歩き回り（ARKit統合）
-- [ ] フェーズ3: Vision Frameworkによるハンドトラッキングの統合
+- [x] フェーズ3: Vision Frameworkによるハンドトラッキングの統合
