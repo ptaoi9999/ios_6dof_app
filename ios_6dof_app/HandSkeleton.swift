@@ -78,10 +78,10 @@ func makeHandSkeletonAnchor() -> AnchorEntity {
         boneMat.metallic  = .init(floatLiteral: 0.0)
 
         // プレースホルダー（位置は updateHandSkeleton で毎フレーム更新）
-        let boneMesh   = MeshResource.generateCylinder(height: 0.001, radius: 0.005)
+        let boneMesh   = MeshResource.generateBox(width: 0.005, height: 0.001, depth: 0.005)
         let boneEntity = ModelEntity(mesh: boneMesh, materials: [boneMat])
         boneEntity.name  = "bone_placeholder"
-        boneEntity.scale = .zero
+        boneEntity.scale = SIMD3<Float>.zero
         anchor.addChild(boneEntity)
     }
 
@@ -102,7 +102,6 @@ func updateHandSkeleton(
     let activeTint = isGrabbing ? grabTint : (isPinching ? pinchTint : skinTint)
 
     // ジョイント球体の更新
-    var boneIdx = 0
     var boneEntities: [ModelEntity] = []
 
     for child in handAnchor.children {

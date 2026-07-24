@@ -184,7 +184,7 @@ func setupVRChatHomeScene(in arView: ARView) {
     tableTop.position = [-0.5, -0.85, -1.8]
     anchor.addChild(tableTop)
     // テーブル脚
-    let legMesh = MeshResource.generateCylinder(height: 0.38, radius: 0.03)
+    let legMesh = MeshResource.generateBox(width: 0.06, height: 0.38, depth: 0.06)
     for pos: SIMD3<Float> in [[-1.18, -1.04, -2.2], [0.18, -1.04, -2.2],
                                 [-1.18, -1.04, -1.4], [0.18, -1.04, -1.4]] {
         let leg = ModelEntity(mesh: legMesh, materials: [woodMat])
@@ -255,7 +255,7 @@ func setupVRChatHomeScene(in arView: ARView) {
     var potMat = PhysicallyBasedMaterial()
     potMat.baseColor = .init(tint: UIColor(red: 0.55, green: 0.45, blue: 0.35, alpha: 1))
     potMat.roughness = .init(floatLiteral: 0.85)
-    let pot = ModelEntity(mesh: .generateCylinder(height: 0.45, radius: 0.22), materials: [potMat])
+    let pot = ModelEntity(mesh: .generateBox(width: 0.44, height: 0.45, depth: 0.44), materials: [potMat])
     pot.position = [-4.0, -1.0, -4.2]
     anchor.addChild(pot)
     var leafMat = PhysicallyBasedMaterial()
