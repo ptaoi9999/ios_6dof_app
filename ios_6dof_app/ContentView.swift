@@ -178,7 +178,7 @@ struct VRViewContainer: UIViewRepresentable {
     
     func updateUIView(_ uiView: ARView, context: Context) {
         // パススルー状態に基づいて背景の描画を切り替える
-        uiView.environment.background = tracker.isPassThroughEnabled ? .cameraFeed : .color(.black)
+        uiView.environment.background = tracker.isPassThroughEnabled ? .cameraFeed() : .color(.black)
         
         // カメラの位置・回転をARKitに同期
         if let camera = uiView.scene.findEntity(named: "vrCamera") {
@@ -228,7 +228,7 @@ struct VRViewContainer: UIViewRepresentable {
         anchor.addChild(floor)
         
         // 天井 (Y = 1.8m)
-        let ceiling = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: SimpleMaterial(color: UIColor(white: 0.85, alpha: 1.0), isMetallic: false))
+        let ceiling = ModelEntity(mesh: MeshResource.generateBox(width: 10, height: 0.1, depth: 10), materials: [SimpleMaterial(color: UIColor(white: 0.85, alpha: 1.0), isMetallic: false)])
         ceiling.position = [0, 1.8, 0]
         anchor.addChild(ceiling)
         
