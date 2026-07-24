@@ -12,7 +12,6 @@ ios_6dof_app/                         # プロジェクトルート
 │   ├── ARTracker.swift                # ARKit 6DoFトラッキング / Vision ハンドトラッキング / 物理演算
 │   ├── HandSkeleton.swift             # 手骨格の3Dビジュアライゼーション (21関節PBR球体+ボーン)
 │   ├── RoomScene.swift                # VRChat Cozy Cabin風バーチャル空間 (PBR家具・暖炉・照明)
-│   ├── MenuEntity.swift               # LaunchPad GUIメニューエンティティ (グーで開閉)
 │   ├── Info.plist                     # アプリ設定・権限宣言 (NSCameraUsageDescription)
 │   └── Assets.xcassets/
 │       ├── Contents.json              # アセットカタログルート定義
@@ -37,4 +36,3 @@ ios_6dof_app/                         # プロジェクトルート
 | `ARTracker.swift` | ARKit（位置・回転）・Vision（ハンドトラッキング）・ボール物理演算を一元管理 |
 | `HandSkeleton.swift` | Visionの関節座標を21個のPBR球体とボーン円柱で3D描画する手のビジュアル |
 | `RoomScene.swift` | 部屋の壁・床・家具・暖炉・照明などのRealityKitシーン構築 |
-| `MenuEntity.swift` | グー（Fist）ジェスチャーで表示されるLaunchPadパネルエンティティの生成 |

@@ -12,7 +12,6 @@
 		E000000A2C00000100000002 /* ARTracker.swift in Sources */   = {isa = PBXBuildFile; fileRef = E000000A2C00000100000001; };
 		E000000B2C00000100000002 /* HandSkeleton.swift in Sources */= {isa = PBXBuildFile; fileRef = E000000B2C00000100000001; };
 		E000000C2C00000100000002 /* RoomScene.swift in Sources */   = {isa = PBXBuildFile; fileRef = E000000C2C00000100000001; };
-		E000000D2C00000100000002 /* MenuEntity.swift in Sources */  = {isa = PBXBuildFile; fileRef = E000000D2C00000100000001; };
 		E000000E2C00000100000002 /* Types.swift in Sources */       = {isa = PBXBuildFile; fileRef = E000000E2C00000100000001; };
 		E000000F2C00000100000002 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E000000F2C00000100000001; };
 /* End PBXBuildFile section */
@@ -25,7 +24,6 @@
 		E000000A2C00000100000001 /* ARTracker.swift */     = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift;      name = ARTracker.swift;     path = ios_6dof_app/ARTracker.swift;     sourceTree = "<group>"; };
 		E000000B2C00000100000001 /* HandSkeleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift;      name = HandSkeleton.swift;  path = ios_6dof_app/HandSkeleton.swift;  sourceTree = "<group>"; };
 		E000000C2C00000100000001 /* RoomScene.swift */    = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift;      name = RoomScene.swift;     path = ios_6dof_app/RoomScene.swift;     sourceTree = "<group>"; };
-		E000000D2C00000100000001 /* MenuEntity.swift */   = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift;      name = MenuEntity.swift;    path = ios_6dof_app/MenuEntity.swift;    sourceTree = "<group>"; };
 		E000000E2C00000100000001 /* Types.swift */        = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift;      name = Types.swift;         path = ios_6dof_app/Types.swift;         sourceTree = "<group>"; };
 		E000000F2C00000100000001 /* Assets.xcassets */    = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog;   name = Assets.xcassets;     path = ios_6dof_app/Assets.xcassets;     sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -68,7 +66,6 @@
 				E000000A2C00000100000001 /* ARTracker.swift */,
 				E000000B2C00000100000001 /* HandSkeleton.swift */,
 				E000000C2C00000100000001 /* RoomScene.swift */,
-				E000000D2C00000100000001 /* MenuEntity.swift */,
 				E000000E2C00000100000001 /* Types.swift */,
 				E00000052C00000100000000 /* Info.plist */,
 				E000000F2C00000100000001 /* Assets.xcassets */,
@@ -138,7 +135,6 @@
 				E000000A2C00000100000002 /* ARTracker.swift in Sources */,
 				E000000B2C00000100000002 /* HandSkeleton.swift in Sources */,
 				E000000C2C00000100000002 /* RoomScene.swift in Sources */,
-				E000000D2C00000100000002 /* MenuEntity.swift in Sources */,
 				E000000E2C00000100000002 /* Types.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

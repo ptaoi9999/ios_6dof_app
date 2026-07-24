@@ -51,14 +51,6 @@ struct VRViewContainer: UIViewRepresentable {
         ballAnchor.addChild(ball)
         arView.scene.addAnchor(ballAnchor)
 
-        // 5. LaunchPadメニュー
-        let menu = createLaunchPadEntity()
-        menu.name  = "vrMenu"
-        menu.scale = .zero
-        let menuAnchor = AnchorEntity(world: .zero)
-        menuAnchor.addChild(menu)
-        arView.scene.addAnchor(menuAnchor)
-
         return arView
     }
 
@@ -83,16 +75,6 @@ struct VRViewContainer: UIViewRepresentable {
 
         // ボールの位置更新
         uiView.scene.findEntity(named: "vrBall")?.position = tracker.ballPosition
-
-        // メニューの表示・位置同期
-        if let menu = uiView.scene.findEntity(named: "vrMenu") {
-            if tracker.isMenuVisible {
-                menu.transform.matrix = tracker.menuTransform
-                menu.scale = [1, 1, 1]
-            } else {
-                menu.scale = .zero
-            }
-        }
     }
 }
 
