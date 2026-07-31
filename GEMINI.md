@@ -27,3 +27,4 @@
   - [x] GitHub Actionsによる署名なしIPAビルドワークフローの構築
 - [x] フェーズ2: 6DoFでの歩き回り（ARKit統合）
 - [x] フェーズ3: Vision Frameworkによるハンドトラッキングの統合
+- [x] フェーズ4: NPCの追加（ソファでゴロゴロしている人型NPC、RealityKitプリミティブで実装）

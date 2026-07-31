@@ -279,7 +279,159 @@ func setupVRChatHomeScene(in arView: ARView) {
     moon.position = [-1.0, 1.2, -16]
     anchor.addChild(moon)
 
+    // MARK: - NPC（ソファでくつろぐ人）
+    buildLoungingNPC(parent: anchor)
+
     arView.scene.addAnchor(anchor)
+}
+
+// MARK: - NPC ビルダー
+
+/// ソファの上に横になってゴロゴロしている人型NPCを構築する
+/// ソファ中心: [-0.3, -0.95, 0.55]（座面上面 y ≈ -0.80）
+private func buildLoungingNPC(parent: Entity) {
+
+    // --- 肌・服 マテリアル ---
+    var skinMat = PhysicallyBasedMaterial()
+    skinMat.baseColor = .init(tint: UIColor(red: 0.92, green: 0.74, blue: 0.62, alpha: 1))
+    skinMat.roughness = .init(floatLiteral: 0.85)
+    skinMat.metallic  = .init(floatLiteral: 0.0)
+
+    var shirtMat = PhysicallyBasedMaterial()
+    shirtMat.baseColor = .init(tint: UIColor(red: 0.55, green: 0.70, blue: 0.85, alpha: 1))
+    shirtMat.roughness = .init(floatLiteral: 0.90)
+    shirtMat.metallic  = .init(floatLiteral: 0.0)
+
+    var pantsMat = PhysicallyBasedMaterial()
+    pantsMat.baseColor = .init(tint: UIColor(red: 0.25, green: 0.30, blue: 0.40, alpha: 1))
+    pantsMat.roughness = .init(floatLiteral: 0.85)
+    pantsMat.metallic  = .init(floatLiteral: 0.0)
+
+    var hairMat = PhysicallyBasedMaterial()
+    hairMat.baseColor = .init(tint: UIColor(red: 0.20, green: 0.14, blue: 0.10, alpha: 1))
+    hairMat.roughness = .init(floatLiteral: 0.95)
+    hairMat.metallic  = .init(floatLiteral: 0.0)
+
+    // ソファ座面の上面 y ≈ -0.80
+    // NPC は X 軸方向（左右）に横向きに寝る
+    // 体の中心 x=-0.3, z=0.55 を基準とする
+
+    let baseX: Float = -0.3
+    let baseY: Float = -0.80   // 座面上面
+    let baseZ: Float = 0.55
+
+    // --- ルートエンティティ（NPC全体をまとめる）---
+    let npc = Entity()
+    npc.name = "npcLounging"
+    parent.addChild(npc)
+
+    // ─── 胴体（Torso） ───
+    // 幅0.40, 高さ0.22, 奥行0.28  →  X方向に横に寝かせるので width と height を入れ替え
+    // 横向き寝: 長軸を X 軸に
+    let torso = ModelEntity(
+        mesh: .generateBox(width: 0.90, height: 0.22, depth: 0.28, cornerRadius: 0.04),
+        materials: [shirtMat]
+    )
+    torso.position = [baseX, baseY + 0.11, baseZ]
+    npc.addChild(torso)
+
+    // ─── 頭 ───
+    let head = ModelEntity(mesh: .generateSphere(radius: 0.115), materials: [skinMat])
+    head.position = [baseX + 0.55, baseY + 0.22, baseZ]
+    npc.addChild(head)
+
+    // ─── 髪（頭の上を覆う楕円）───
+    let hair = ModelEntity(
+        mesh: .generateBox(width: 0.23, height: 0.07, depth: 0.22, cornerRadius: 0.06),
+        materials: [hairMat]
+    )
+    hair.position = [baseX + 0.55, baseY + 0.32, baseZ]
+    npc.addChild(hair)
+
+    // ─── 首 ───
+    let neck = ModelEntity(
+        mesh: .generateBox(width: 0.12, height: 0.08, depth: 0.10, cornerRadius: 0.02),
+        materials: [skinMat]
+    )
+    neck.position = [baseX + 0.43, baseY + 0.20, baseZ]
+    npc.addChild(neck)
+
+    // ─── 腕（上腕）：両腕を前に曲げて添える ───
+    // 上腕 (X方向長）
+    let upperArmMesh = MeshResource.generateBox(width: 0.30, height: 0.11, depth: 0.10, cornerRadius: 0.03)
+
+    // 前腕（少し短め、Z方向に折り曲げる）
+    let foreArmMesh  = MeshResource.generateBox(width: 0.10, height: 0.10, depth: 0.25, cornerRadius: 0.03)
+
+    // 上腕（前方）
+    let upperArmF = ModelEntity(mesh: upperArmMesh, materials: [shirtMat])
+    upperArmF.position = [baseX + 0.35, baseY + 0.22, baseZ - 0.18]
+    npc.addChild(upperArmF)
+
+    // 前腕（前方）
+    let foreArmF = ModelEntity(mesh: foreArmMesh, materials: [skinMat])
+    foreArmF.position = [baseX + 0.28, baseY + 0.22, baseZ - 0.33]
+    npc.addChild(foreArmF)
+
+    // ─── 手（手のひら）───
+    let handMesh = MeshResource.generateBox(width: 0.09, height: 0.07, depth: 0.12, cornerRadius: 0.02)
+    let handF = ModelEntity(mesh: handMesh, materials: [skinMat])
+    handF.position = [baseX + 0.27, baseY + 0.22, baseZ - 0.46]
+    npc.addChild(handF)
+
+    // ─── 腰～骨盤部 ───
+    let hip = ModelEntity(
+        mesh: .generateBox(width: 0.45, height: 0.22, depth: 0.28, cornerRadius: 0.04),
+        materials: [pantsMat]
+    )
+    hip.position = [baseX - 0.43, baseY + 0.11, baseZ]
+    npc.addChild(hip)
+
+    // ─── 太もも（大腿）───
+    let thighMesh = MeshResource.generateBox(width: 0.40, height: 0.16, depth: 0.15, cornerRadius: 0.03)
+
+    // 太もも1本目
+    let thigh1 = ModelEntity(mesh: thighMesh, materials: [pantsMat])
+    thigh1.position = [baseX - 0.80, baseY + 0.08, baseZ - 0.06]
+    npc.addChild(thigh1)
+
+    // 太もも2本目（上に重ねる）
+    let thigh2 = ModelEntity(mesh: thighMesh, materials: [pantsMat])
+    thigh2.position = [baseX - 0.80, baseY + 0.22, baseZ - 0.02]
+    npc.addChild(thigh2)
+
+    // ─── すね（膝下）：膝を少し曲げて Z 方向後ろに ───
+    let shinMesh = MeshResource.generateBox(width: 0.10, height: 0.14, depth: 0.38, cornerRadius: 0.03)
+
+    let shin1 = ModelEntity(mesh: shinMesh, materials: [pantsMat])
+    shin1.position = [baseX - 0.98, baseY + 0.07, baseZ + 0.11]
+    npc.addChild(shin1)
+
+    let shin2 = ModelEntity(mesh: shinMesh, materials: [pantsMat])
+    shin2.position = [baseX - 0.98, baseY + 0.22, baseZ + 0.11]
+    npc.addChild(shin2)
+
+    // ─── 足（つま先）───
+    let footMesh = MeshResource.generateBox(width: 0.09, height: 0.08, depth: 0.20, cornerRadius: 0.02)
+
+    let foot1 = ModelEntity(mesh: footMesh, materials: [skinMat])
+    foot1.position = [baseX - 1.00, baseY + 0.04, baseZ + 0.22]
+    npc.addChild(foot1)
+
+    let foot2 = ModelEntity(mesh: footMesh, materials: [skinMat])
+    foot2.position = [baseX - 1.00, baseY + 0.18, baseZ + 0.22]
+    npc.addChild(foot2)
+
+    // ─── 枕 ───
+    var pilMat = PhysicallyBasedMaterial()
+    pilMat.baseColor = .init(tint: UIColor(red: 0.95, green: 0.92, blue: 0.88, alpha: 1))
+    pilMat.roughness = .init(floatLiteral: 0.95)
+    let pillow = ModelEntity(
+        mesh: .generateBox(width: 0.26, height: 0.10, depth: 0.42, cornerRadius: 0.05),
+        materials: [pilMat]
+    )
+    pillow.position = [baseX + 0.56, baseY + 0.05, baseZ]
+    npc.addChild(pillow)
 }
 
 /// バーチャルハウスの表示/非表示（パススルー切替用）
